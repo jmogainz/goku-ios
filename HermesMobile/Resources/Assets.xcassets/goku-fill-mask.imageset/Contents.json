@@ -1,10 +1,9 @@
 {
   "images" : [
     {
-      "filename" : "goku_app_icon.png",
+      "filename" : "goku-fill-mask.png",
       "idiom" : "universal",
-      "platform" : "ios",
-      "size" : "1024x1024"
+      "scale" : "1x"
     }
   ],
   "info" : {

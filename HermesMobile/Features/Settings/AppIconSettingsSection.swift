@@ -172,17 +172,7 @@ private struct AppIconChoicePreview: View {
 
     @ViewBuilder
     var body: some View {
-        switch icon {
-        case .system:
-            AppIconPreviewImage(
-                name: colorScheme == .dark ? "AppIconDarkPreview" : "AppIconLightPreview",
-                size: 44
-            )
-        case .light, .dark, .disco, .monochromeLight, .monochromeDark, .gradientLight, .gradientDark:
-            if let previewImageName = icon.previewImageName {
-                AppIconPreviewImage(name: previewImageName, size: 44)
-            }
-        }
+        AppIconPreviewImage(name: "GokuAppIcon", size: 44)
     }
 }
 

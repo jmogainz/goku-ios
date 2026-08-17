@@ -183,29 +183,23 @@ If `iPhone 15` is not installed, choose a nearby available iPhone simulator.
 
 Current status:
 
-- App Store Connect app name: `Goku`.
-- Xcode target/scheme name: `HermesMobile`.
-- iPhone home-screen display name: `Goku`.
+- App Store Connect record name: `Goku Mobile Agent` (Apple requires a globally unique record name; the installed product name remains exactly `Goku`).
+- Xcode target/scheme name: `HermesMobile` (internal build plumbing only).
+- iPhone/iPad home-screen display and bundle name: `Goku`.
 - Bundle ID: `com.jacobmoore.goku`.
 - Test bundle ID: `com.jacobmoore.goku.tests`.
-- SKU: `goku-ios`.
+- SKU: `goku-ios-2026`.
 - Apple Developer Team ID: `U8G25F98S2`.
 - Signing uses Xcode automatic signing.
 - Export compliance is declared in `Info.plist` with `ITSAppUsesNonExemptEncryption = NO`; the app does not implement custom/proprietary encryption and uses normal Apple/platform networking security.
-- App icon uses owner-supplied light and dark assets in `AppIcon.appiconset`.
+- The canonical app icon is generated from `Brand/GokuAppIconSource.png`; legacy alternate Hermex icons are intentionally removed.
 - Launch screen uses the plist-based `UILaunchScreen` placeholder from `Info.plist`, which is acceptable for internal TestFlight validation.
 - `PrivacyInfo.xcprivacy` is bundled with the app target. It declares no tracking, no developer-collected data, and app-only `UserDefaults` access for local preferences.
-- Camera capture is deferred and is not declared. Add `NSCameraUsageDescription` and update the privacy review only if camera capture is implemented later.
 - The current GitHub Actions upload path is intentionally internal-only. External TestFlight readiness and Beta App Review sequencing are tracked in [`TESTFLIGHT.md`](TESTFLIGHT.md).
 
-### Owner checklist: App Store Connect rename to Goku
+### App Store Connect identity
 
-After merging the repo rebrand slice, update App Store Connect metadata separately:
-
-1. Production app (`com.jacobmoore.goku`): rename listing from `Hermes Agent Mobile` → `Goku`.
-2. Branch TestFlight app (`com.jacobmoore.goku.branch`): rename listing from `Hermes Agent Branch` → `Goku Branch`.
-3. Update TestFlight/review notes and any metadata copy that still says the old app name.
-4. Upload a build and confirm TestFlight shows **Goku** / **Goku Branch** on the home screen after processing.
+The App Store Connect record, bundle ID, TestFlight group, and installed app all represent the Goku product. Apple would not accept the globally occupied record name `Goku`, so the administrative record is `Goku Mobile Agent`; `CFBundleDisplayName` and `CFBundleName` are both `Goku`.
 
 ### Branch TestFlight upload (CLI) — the "push to branch testflight" command
 
@@ -297,7 +291,7 @@ GitHub Actions external-capable TestFlight flow:
 ## Full-App Manual Regression Checklist
 
 Use this before internal TestFlight smoke builds and again before adding external testers.
-Capture bugs, polish notes, and follow-up ideas in [GitHub Issues](https://github.com/uzairansaruzi/hermex/issues).
+Capture bugs, polish notes, and follow-up ideas in [GitHub Issues](https://github.com/jmogainz/goku-ios/issues).
 
 ### Onboarding/Auth
 - Fresh install opens onboarding.

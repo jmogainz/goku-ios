@@ -145,10 +145,6 @@ struct SettingsView: View {
                     )
 
                     SettingsFootnote(String(localized: "Apply your header color to these primary buttons."))
-
-                    SettingsDivider()
-
-                    AppIconSettingsSection()
                 }
 
                 SettingsCard(title: String(localized: "Interaction")) {
@@ -1433,7 +1429,7 @@ private struct HeaderLogoColorSettings: View {
             }
             .font(.subheadline)
 
-            HermesHeaderLogo(selectedColor: HeaderLogoColor.color(for: selectedHex))
+            GokuHeaderLogo(selectedColor: HeaderLogoColor.color(for: selectedHex))
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .padding(.horizontal, 12)

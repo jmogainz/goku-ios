@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/readme/hermex-icon.png" alt="Goku app icon" width="96" />
+<img src="docs/assets/readme/goku-icon.png" alt="Goku app icon" width="96" />
 
 # Goku
 
@@ -11,12 +11,10 @@ Your server. Your iPhone. No middleman.
 [![iOS 18+](https://img.shields.io/badge/iOS-18%2B-000000?logo=apple&logoColor=white)](#building-from-source)
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
-[![Follow on X](https://img.shields.io/badge/Follow-%40uzairansar-000000?logo=x&logoColor=white)](https://x.com/uzairansar)
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/callmeuzi)
 
-Goku is a user-owned fork of [Hermex](https://github.com/uzairansaruzi/hermex). The upstream public website and App Store release describe Hermex, not this Goku build.
+Goku is Jacob Moore's native iPhone and iPad client for a self-hosted Hermes agent. It is independently branded and maintained as a user-owned fork of [Hermex](https://github.com/uzairansaruzi/hermex), whose MIT copyright and license remain preserved.
 
-[Upstream Hermex website](https://hermexapp.com) · [Upstream Hermex App Store](https://apps.apple.com/app/hermex/id6767006319) · [Report a Goku bug](https://github.com/jmogainz/hermex/issues) · [Contributing](CONTRIBUTING.md)
+[Report a Goku bug](https://github.com/jmogainz/goku-ios/issues) · [Contributing](CONTRIBUTING.md) · [Upstream Hermex](https://github.com/uzairansaruzi/hermex)
 
 <img src="docs/assets/readme/hero-devices.png" alt="Goku running on two iPhones: a streaming chat session and the home screen with Tasks, Skills, Memory, Insights, and Sessions" width="720" />
 
@@ -49,7 +47,6 @@ Goku is a native SwiftUI iPhone app for driving a self-hosted [hermes-webui](htt
   </tr>
 </table>
 
-More screenshots at [hermexapp.com](https://hermexapp.com).
 </div>
 
 ## Getting started
@@ -114,7 +111,7 @@ The app is developed and tested against the `hermes-webui` commit pinned in [`UP
 - [`CONTRACT_TESTS.md`](CONTRACT_TESTS.md): upstream contract-test readiness and the pin-advance policy.
 - [`SECURITY.md`](SECURITY.md): how to report a vulnerability.
 - [`docs/agents/`](docs/agents): repo-local agent workflow conventions (issues, triage labels, domain notes).
-- [GitHub Issues](https://github.com/uzairansaruzi/hermex/issues): source of truth for active bugs, polish notes, and feature requests.
+- [Goku GitHub Issues](https://github.com/jmogainz/goku-ios/issues): source of truth for active bugs, polish notes, and feature requests.
 
 ## Contributing
 
@@ -125,18 +122,8 @@ Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for how t
 - Add no third-party dependencies beyond the locked list in `PROJECT_SPEC.md` without explicit approval.
 - Do not modify the upstream `hermes-webui` server from this repo.
 
-## Support the project
+## License and upstream attribution
 
-Goku is free and built in the open. If it's useful to you:
-
-- ⭐ **Star this repo** — it helps others find the project.
-- 🐦 **Follow [@uzairansar on X](https://x.com/uzairansar)** for updates and dev logs.
-- ☕ **[Buy me a coffee](https://buymeacoffee.com/callmeuzi)** to support development.
-
-<a href="https://buymeacoffee.com/callmeuzi"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-callmeuzi-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee" height="40" /></a>
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Goku is distributed under the MIT License; see [LICENSE](LICENSE). The original Hermex copyright and bundled third-party notices are preserved. Goku's product name, supplied character artwork, and other fork-specific branding are separate from the upstream Hermex project.
 
 Goku is an independent client and is not affiliated with the upstream [hermes-webui](https://github.com/nesquena/hermes-webui) project. Apple, the Apple logo, and App Store are trademarks of Apple Inc.

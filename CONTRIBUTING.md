@@ -110,6 +110,6 @@ contributors never need App Store Connect access.
 
 ## Questions
 
-Ask in [GitHub Discussions](https://github.com/uzairansaruzi/hermex/discussions)
+Ask in [GitHub Discussions](https://github.com/jmogainz/goku-ios/discussions)
 if something here is unclear or wrong — docs fixes are welcome contributions
 too.

@@ -491,7 +491,7 @@ struct SessionListView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: searchChromeIsExpanded ? 0 : 16) {
-            HermesHeaderLogo(selectedColor: selectedHeaderLogoColor)
+            GokuHeaderLogo(selectedColor: selectedHeaderLogoColor)
                 .frame(width: searchChromeIsExpanded ? 0 : 160, alignment: .leading)
                 .opacity(searchChromeIsExpanded ? 0 : 1)
                 .clipped()
@@ -1265,30 +1265,30 @@ enum SessionListNewChatReturn {
     }
 }
 
-struct HermesHeaderLogo: View {
+struct GokuHeaderLogo: View {
     let selectedColor: Color
 
     private static let aspectRatio = 643.0 / 185.0
 
     var body: some View {
         ZStack {
-            Image("hermes-fill-mask")
+            Image("goku-fill-mask")
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
                 .foregroundStyle(selectedColor)
 
-            Image("hermes-shading-overlay")
+            Image("goku-shading-overlay")
                 .resizable()
                 .scaledToFit()
                 .blendMode(.multiply)
 
-            Image("hermes-highlight")
+            Image("goku-highlight")
                 .resizable()
                 .scaledToFit()
                 .blendMode(.screen)
 
-            Image("hermes-outline-shadow")
+            Image("goku-outline-shadow")
                 .resizable()
                 .scaledToFit()
         }
@@ -1563,10 +1563,10 @@ private struct PendingNewChatView: View {
     }
 }
 
-#Preview("Hermes Header Logo") {
+#Preview("Goku Header Logo") {
     VStack(spacing: 16) {
         ForEach(HeaderLogoColor.presets.prefix(4)) { preset in
-            HermesHeaderLogo(selectedColor: preset.color)
+            GokuHeaderLogo(selectedColor: preset.color)
                 .frame(width: 220)
         }
     }
