@@ -208,8 +208,8 @@ Owner task in App Store Connect:
    - password auth is against the user-configured server;
    - no in-app account creation;
    - no purchases;
-   - camera capture is not implemented;
-   - shared files/photos/PDFs are staged locally, then uploaded only to the configured Hermes server for composer attachment import;
+   - camera capture is available for explicit composer attachments;
+   - shared files/photos/PDFs and camera captures are staged locally, then uploaded only to the configured Hermes server after the user sends the message;
    - user must explicitly send the message after import.
 5. Enter a public privacy policy URL.
 6. Review App Privacy answers:
@@ -260,7 +260,7 @@ Suggested review path:
 Notes:
 - There is no in-app account creation or purchase flow.
 - The server is self-hosted and password protected.
-- Camera capture is not implemented in this build.
+- Camera capture is available only when the user explicitly chooses Camera for a composer attachment.
 - Microphone and speech recognition are used only for explicit composer dictation.
 - Photo/file access is used only when the user selects attachments or shares content into the app.
 ```
@@ -713,7 +713,7 @@ Suggested review path:
 Notes:
 - There is no in-app account creation or purchase flow.
 - The server is self-hosted and password protected.
-- Camera capture is not implemented in this build.
+- Camera capture is available only when the user explicitly chooses Camera for a composer attachment.
 - Microphone and speech recognition are used only for explicit composer dictation.
 - Photo/file access is used only when the user selects attachments or shares content into the app.
 ```

@@ -77,6 +77,39 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    func testGokuBrandKeysDoNotReferencePreviousProductNames() throws {
+        let data = try Data(contentsOf: catalogURL())
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let strings = try XCTUnwrap(root["strings"] as? [String: Any])
+        let staleBrandPattern = try NSRegularExpression(pattern: #"\b(?:Hermes|Hermex)\b"#, options: [.caseInsensitive])
+
+        for (key, rawEntry) in strings where key.localizedCaseInsensitiveContains("Goku") {
+            guard let entry = rawEntry as? [String: Any],
+                  let localizations = entry["localizations"] as? [String: Any] else { continue }
+
+            for language in Self.shippedLanguages {
+                let localization = try XCTUnwrap(localizations[language] as? [String: Any], "[\(language)] \(key)")
+                let value = try XCTUnwrap(
+                    (localization["stringUnit"] as? [String: Any])?["value"] as? String,
+                    "[\(language)] \(key)"
+                )
+                let range = NSRange(value.startIndex..<value.endIndex, in: value)
+                XCTAssertNil(
+                    staleBrandPattern.firstMatch(in: value, range: range),
+                    "[\(language)] \(key) still references the previous product brand: \(value)"
+                )
+            }
+        }
+    }
+
+    func testGitBranchPlaceholderUsesGokuBrand() throws {
+        let sourceURL = resourceURL("HermesMobile/Features/Workspace/GitBranchPickerView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("goku/my-feature"))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("hermex/my-feature"))
+    }
+
     func testAppShortcutPhrasesHaveDedicatedCatalogEntries() throws {
         let url = resourceURL("HermesMobile/Resources/AppShortcuts.xcstrings")
         let data = try Data(contentsOf: url)

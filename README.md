@@ -14,7 +14,7 @@ Your server. Your iPhone. No middleman.
 
 Goku is Jacob Moore's native iPhone and iPad client for a self-hosted Hermes agent. It is independently branded and maintained as a user-owned fork of [Hermex](https://github.com/uzairansaruzi/hermex), whose MIT copyright and license remain preserved.
 
-[Report a Goku bug](https://github.com/jmogainz/goku-ios/issues) · [Contributing](CONTRIBUTING.md) · [Upstream Hermex](https://github.com/uzairansaruzi/hermex)
+[Report a Goku bug](https://github.com/jmogainz/goku-ios/issues) · [Privacy](PRIVACY.md) · [Support](SUPPORT.md) · [Contributing](CONTRIBUTING.md) · [Upstream Hermex](https://github.com/uzairansaruzi/hermex)
 
 <img src="docs/assets/readme/hero-devices.png" alt="Goku running on two iPhones: a streaming chat session and the home screen with Tasks, Skills, Memory, Insights, and Sessions" width="720" />
 

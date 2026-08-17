@@ -461,15 +461,15 @@ Each phase ends in a working, committable state. Run on the simulator after ever
 **Classification:** required before polish/TestFlight.
 
 #### 9.1 Composer `+` menu
-- **User-facing goal:** Add a `+` button in the bottom composer that opens Attach File and Photos. Workspace, profile, model, and reasoning controls live in the composer control row/sheets. Camera capture is deferred from the current v1 scope until privacy manifest and physical-device validation are complete.
+- **User-facing goal:** Add a `+` button in the bottom composer that opens Attach File, Photos, and Camera. Workspace, profile, model, and reasoning controls live in the composer control row/sheets.
 - **Upstream API/server contract to verify:** `POST /api/upload`, `POST /api/upload/extract`, `POST /api/chat/start` with an `attachments` body field, `GET /api/workspaces`, `GET /api/workspaces/suggest`, `POST /api/session/update`, `GET /api/profiles`, `POST /api/profile/switch`, `GET /api/models`, `GET /api/reasoning`, `POST /api/reasoning`.
 - **iOS UI changes:** Native menu plus sheets/pickers for file import, Photos, workspace selection, profile selection, model selection, and reasoning effort. Use the compact Liquid-Glass composer structure with a bottom control row, and a consistent reasoning icon style where SF Symbols support it. "Choose workspace path" changes the active session workspace for future sends; it does not insert an `@path` reference in v1. "Choose profile" switches the client profile for future sessions; if the current chat already has messages, prompt to start a new session under the selected profile rather than retagging the existing transcript.
 - **Model/networking changes:** Add multipart upload support using `URLSession`; add `ChatAttachment`, profile, model catalog, workspace, and reasoning models. Keep picker state synchronized with the current session.
 - **Local preference impact:** Let the user mark favorite models from the full model picker. Favorites appear first in the compact composer model menu. Store favorites locally, keyed by exact model ID/provider, and tolerate models disappearing from the server catalog.
 - **Persistence/cache impact:** Attachments are pending composer state only until sent. Workspace/model changes should update the session cache after server confirmation. Do not cache uploaded file bytes. Model favorites are local app preferences, not server state.
 - **Tests:** Multipart upload request, upload response decoding, chat start with attachments, workspace/model/profile/reasoning request bodies, favorite-model persistence/filtering, offline disabled-state behavior.
-- **Manual simulator test plan:** Attach a document, attach a photo, confirm camera does not appear in the current composer menu, send with an image attachment, switch workspace, switch model, favorite/unfavorite models and verify the compact menu updates, switch reasoning effort, switch profile, then send and confirm the server uses selected values.
-- **Risks/open questions:** Camera capture is deferred; adding it later requires privacy strings, privacy manifest coverage, and physical-device verification. Profile switching is blocked while an agent stream is running and cannot safely retag an existing conversation. Large uploads must show progress/failure without losing the draft.
+- **Manual simulator test plan:** Attach a document, attach a photo, confirm Camera is disabled when the simulator has no camera source, send with an image attachment, switch workspace, switch model, favorite/unfavorite models and verify the compact menu updates, switch reasoning effort, switch profile, then send and confirm the server uses selected values.
+- **Risks/open questions:** Camera capture requires the declared privacy string and physical-device verification. Profile switching is blocked while an agent stream is running and cannot safely retag an existing conversation. Large uploads must show progress/failure without losing the draft.
 
 #### 9.2 Context window indicator
 - **User-facing goal:** Add a small context window indicator next to the send button; tapping it shows context window information.
@@ -619,7 +619,7 @@ Each phase ends in a working, committable state. Run on the simulator after ever
 - [x] Optional local notification when an assistant response completes while the app is backgrounded, if notification permission is granted.
 - [x] Dynamic Type support (test at largest size).
 - [x] VoiceOver labels for all interactive elements, including new context menus and server panels.
-- [x] Privacy strings for Photos/file import, microphone, and speech recognition where required. Camera remains deferred and is not declared.
+- [x] Privacy strings for Photos/file import, camera, microphone, and speech recognition where required. Camera capture is available only through an explicit composer action.
 - [x] Privacy manifest (`PrivacyInfo.xcprivacy`) — declares no tracking, no developer-collected data, and required-reason `UserDefaults` access for app-only preferences.
 - [ ] Crash reporting? **Skip for v1** unless owner wants Firebase Crashlytics.
 

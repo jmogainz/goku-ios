@@ -11,4 +11,18 @@ final class AppIconChoiceTests: XCTestCase {
         XCTAssertEqual(AppIconChoice.resolved(from: nil), .system)
         XCTAssertEqual(AppIconChoice.resolved(from: "LegacyAlternateIcon"), .system)
     }
+
+    func testPrivacyPolicyUsesGokuControlledPublicURL() {
+        XCTAssertEqual(
+            AppConfig.privacyPolicyURL.absoluteString,
+            "https://github.com/jmogainz/goku-ios/blob/master/PRIVACY.md"
+        )
+    }
+
+    func testSupportUsesGokuRepositoryIssues() {
+        XCTAssertEqual(
+            AppConfig.supportURL.absoluteString,
+            "https://github.com/jmogainz/goku-ios/issues"
+        )
+    }
 }
