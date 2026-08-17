@@ -568,6 +568,7 @@ struct ChatView: View {
                 .zIndex(10)
             }
         }
+        .background { GokuBackdrop().ignoresSafeArea() }
         .overlay(alignment: .top) {
             GitActionToastOverlay(state: gitToastState)
         }

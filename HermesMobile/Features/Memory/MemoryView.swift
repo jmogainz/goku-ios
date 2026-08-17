@@ -15,6 +15,8 @@ struct MemoryView: View {
 
     var body: some View {
         content
+            .scrollContentBackground(.hidden)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Memory")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

@@ -718,6 +718,7 @@ struct ScheduledSessionsView: View {
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 0)
         .scrollContentBackground(.hidden)
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle("Scheduled sessions")
         .searchable(text: $searchText, prompt: "Search sessions")
     }

@@ -49,6 +49,7 @@ struct FilePreviewView: View {
             }
         }
         .adaptiveReadableScrollContent(maxWidth: AdaptiveReadableContentWidth.workspace)
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -197,7 +198,7 @@ struct FilePreviewView: View {
                 Label("Copy", systemImage: "doc.on.doc")
             }
         }
-        .background(Color(.systemBackground))
+        .background(Color.clear)
     }
 
     private var isMarkdownFile: Bool {
@@ -225,7 +226,7 @@ struct FilePreviewView: View {
                 }
                 .padding()
             }
-            .background(Color(.systemBackground))
+            .background(Color.clear)
         } else {
             ContentUnavailableView {
                 Label("Could Not Preview Image", systemImage: "photo")

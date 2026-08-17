@@ -18,7 +18,7 @@ struct ProvidersView: View {
     var body: some View {
         content
             .navigationTitle("Providers")
-            .background(Color(.systemBackground))
+            .background { GokuBackdrop().ignoresSafeArea() }
             .task {
                 await viewModel.load()
             }

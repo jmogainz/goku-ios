@@ -374,17 +374,19 @@ struct MessageBubbleView: View {
     }
 
     private var userBubbleBackground: Color {
-        colorScheme == .dark ? Color(.systemGray3) : Color(.systemGray6)
+        colorScheme == .dark
+            ? GokuVisualTheme.royalBlue.opacity(0.80)
+            : GokuVisualTheme.royalBlue
     }
 
     private var userBubbleForeground: Color {
-        Color(.label)
+        .white
     }
 
     private var userBubbleBorder: Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.08)
-            : Color.black.opacity(0.04)
+            ? GokuVisualTheme.skyBlue.opacity(0.34)
+            : GokuVisualTheme.deepNavy.opacity(0.10)
     }
 
     private var messageText: String {

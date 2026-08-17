@@ -77,6 +77,8 @@ struct WorkspaceManagerView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Manage Workspaces")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

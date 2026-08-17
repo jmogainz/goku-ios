@@ -480,7 +480,7 @@ struct SessionListView: View {
         .environment(\.defaultMinListRowHeight, 0)
         .scrollContentBackground(.hidden)
         .scrollPosition(id: $sidebarScrollPosition)
-        .background(Color(.systemBackground))
+        .background { GokuBackdrop().ignoresSafeArea() }
         .scrollDismissesKeyboard(.interactively)
         // Disclosure subrows are real List rows; drive their fold from the List
         // so insert/remove animates. Value-based so it works with @AppStorage.
@@ -502,6 +502,15 @@ struct SessionListView: View {
         }
         .padding(.horizontal, 24)
         .padding(.top, 28)
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(GokuVisualTheme.energyGradient)
+                .frame(height: 2)
+                .padding(.horizontal, 24)
+                .offset(y: 11)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .animation(SessionListMotion.searchChromeAnimation(reduceMotion: reduceMotion), value: searchChromeIsExpanded)
         .animation(SessionListMotion.searchFocusAnimation(reduceMotion: reduceMotion), value: showsSearchClearButton)
         .onChange(of: searchFieldIsFocused) { _, newValue in

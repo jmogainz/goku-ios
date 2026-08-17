@@ -58,6 +58,7 @@ struct TaskDetailView: View {
             }
             .padding()
         }
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle(viewModel.job.displayName)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {

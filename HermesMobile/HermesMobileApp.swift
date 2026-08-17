@@ -55,12 +55,15 @@ struct HermesMobileApp: App {
                 NavigationStack {
                     StreamingLabView()
                 }
+                .gokuAppTheme()
             } else {
                 ContentView(authManager: authManager)
+                    .gokuAppTheme()
                     .preferredColorScheme(AppTheme.storedValue(appThemeRawValue).colorScheme)
             }
             #else
             ContentView(authManager: authManager)
+                .gokuAppTheme()
                 .preferredColorScheme(AppTheme.storedValue(appThemeRawValue).colorScheme)
             #endif
         }
