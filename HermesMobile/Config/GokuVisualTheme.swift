@@ -36,6 +36,14 @@ enum GokuVisualTheme {
         Color(hexRGB: actionHex(for: colorScheme))!
     }
 
+    static func accentForegroundHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? deepNavyHex : "#FFFFFF"
+    }
+
+    static func accentForeground(for colorScheme: ColorScheme) -> Color {
+        Color(hexRGB: accentForegroundHex(for: colorScheme))!
+    }
+
     static func brandAccentHex(for colorScheme: ColorScheme) -> String {
         colorScheme == .dark ? "#FFB21C" : "#9A3F00"
     }
@@ -56,12 +64,47 @@ enum GokuVisualTheme {
         colorScheme == .dark ? Color(hexRGB: "#16365E")! : Color(hexRGB: "#FFFDF9")!
     }
 
-    static func navigationBarBackground(for colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? deepNavy.opacity(0.86) : Color(hexRGB: "#FFF8EE")!.opacity(0.92)
+    static func navigationBarOpacity(
+        for colorScheme: ColorScheme,
+        reduceTransparency: Bool
+    ) -> Double {
+        guard !reduceTransparency else { return 1 }
+        return colorScheme == .dark ? 0.86 : 0.92
     }
 
-    static func subtleStroke(for colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? skyBlue.opacity(0.20) : royalBlue.opacity(0.14)
+    static func navigationBarBackground(
+        for colorScheme: ColorScheme,
+        reduceTransparency: Bool
+    ) -> Color {
+        let base = colorScheme == .dark ? deepNavy : Color(hexRGB: "#FFF8EE")!
+        return base.opacity(navigationBarOpacity(
+            for: colorScheme,
+            reduceTransparency: reduceTransparency
+        ))
+    }
+
+    static func panelStrokeOpacity(
+        for colorScheme: ColorScheme,
+        increasedContrast: Bool
+    ) -> Double {
+        switch (colorScheme, increasedContrast) {
+        case (.dark, true): 0.42
+        case (.light, true): 0.32
+        case (.dark, false): 0.20
+        case (.light, false): 0.14
+        @unknown default: increasedContrast ? 0.36 : 0.17
+        }
+    }
+
+    static func subtleStroke(
+        for colorScheme: ColorScheme,
+        increasedContrast: Bool = false
+    ) -> Color {
+        let base = colorScheme == .dark ? skyBlue : royalBlue
+        return base.opacity(panelStrokeOpacity(
+            for: colorScheme,
+            increasedContrast: increasedContrast
+        ))
     }
 
     static var brandGradient: LinearGradient {
@@ -148,18 +191,26 @@ struct GokuBackdrop: View {
 
 private struct GokuAppThemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
         content
             .tint(GokuVisualTheme.action(for: colorScheme))
             .background { GokuBackdrop().ignoresSafeArea() }
-            .toolbarBackground(GokuVisualTheme.navigationBarBackground(for: colorScheme), for: .navigationBar)
+            .toolbarBackground(
+                GokuVisualTheme.navigationBarBackground(
+                    for: colorScheme,
+                    reduceTransparency: reduceTransparency
+                ),
+                for: .navigationBar
+            )
             .toolbarBackground(.visible, for: .navigationBar)
     }
 }
 
 private struct GokuPanelModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let cornerRadius: CGFloat
 
@@ -175,7 +226,13 @@ private struct GokuPanelModifier: ViewModifier {
             }
             .overlay {
                 shape
-                    .stroke(GokuVisualTheme.subtleStroke(for: colorScheme), lineWidth: 0.8)
+                    .stroke(
+                        GokuVisualTheme.subtleStroke(
+                            for: colorScheme,
+                            increasedContrast: colorSchemeContrast == .increased
+                        ),
+                        lineWidth: colorSchemeContrast == .increased ? 1 : 0.8
+                    )
                     .allowsHitTesting(false)
             }
             .shadow(
