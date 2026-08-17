@@ -9,6 +9,8 @@ enum TranscriptMediaKind: Equatable {
     case image
     case audio
     case video
+    case pdf
+    case markdown
     case unsupported
 }
 
@@ -59,6 +61,15 @@ struct TranscriptMediaReference: Equatable, Identifiable {
             return .video
         }
 
+        switch DocumentPreviewKind.infer(nameOrPath: ext.isEmpty ? nil : "file.\(ext)") {
+        case .pdf:
+            return .pdf
+        case .markdown:
+            return .markdown
+        case nil:
+            break
+        }
+
         if case .remoteURL = source, ext.isEmpty {
             return .image
         }
@@ -76,6 +87,14 @@ struct TranscriptMediaReference: Equatable, Identifiable {
 
     var isVideoCandidate: Bool {
         mediaKind == .video
+    }
+
+    var isPDFCandidate: Bool {
+        mediaKind == .pdf
+    }
+
+    var isMarkdownCandidate: Bool {
+        mediaKind == .markdown
     }
 
     var isExtensionlessRemoteMediaCandidate: Bool {

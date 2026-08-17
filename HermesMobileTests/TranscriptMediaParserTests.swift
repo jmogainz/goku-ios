@@ -229,11 +229,20 @@ final class TranscriptMediaParserTests: XCTestCase {
         XCTAssertEqual(references[7].mediaKind, .video)
     }
 
+    func testDocumentFilesAreClassifiedForNativePreview() {
+        let references = [
+            TranscriptMediaReference(rawReference: "/tmp/report.PDF"),
+            TranscriptMediaReference(rawReference: "/tmp/notes.md"),
+            TranscriptMediaReference(rawReference: "/tmp/notes.markdown")
+        ]
+
+        XCTAssertEqual(references.map(\.mediaKind), [.pdf, .markdown, .markdown])
+    }
+
     func testUnsupportedTextAndDataFilesAreClassifiedAsUnsupported() {
         let references = [
             TranscriptMediaReference(rawReference: "/tmp/report.txt"),
             TranscriptMediaReference(rawReference: "/tmp/data.csv"),
-            TranscriptMediaReference(rawReference: "/tmp/notes.md"),
             TranscriptMediaReference(rawReference: "/tmp/config.json"),
             TranscriptMediaReference(rawReference: "/tmp/archive.zip"),
         ]

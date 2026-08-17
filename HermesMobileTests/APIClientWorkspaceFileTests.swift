@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import ImageIO
+import PDFKit
 import SwiftData
 import UIKit
 import UniformTypeIdentifiers
@@ -614,6 +615,89 @@ final class APIClientWorkspaceFileTests: APIClientTestCase {
         XCTAssertEqual(response, expectedData)
     }
 
+    func testRawFilePreviewRejectsPayloadAboveByteLimit() async throws {
+        let oversizedData = Data(repeating: 0x41, count: 5)
+        let client = makeClient { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/pdf",
+                    "Content-Length": String(oversizedData.count)
+                ]
+            )
+            return (try XCTUnwrap(response), oversizedData)
+        }
+
+        do {
+            _ = try await client.rawFilePreviewData(
+                sessionID: "abc123",
+                path: "report.pdf",
+                maximumBytes: 4
+            )
+            XCTFail("Expected oversized preview data to be rejected.")
+        } catch let PreviewDownloadError.responseTooLarge(maximumBytes) {
+            XCTAssertEqual(maximumBytes, 4)
+        } catch {
+            XCTFail("Expected responseTooLarge, got \(error)")
+        }
+    }
+
+    func testBoundedPreviewCancelsTransferWhenHeadersExceedLimit() async throws {
+        let stopped = expectation(description: "oversized transfer cancelled")
+        CancellablePreviewURLProtocol.configure(contentLength: 5) {
+            stopped.fulfill()
+        }
+        defer { CancellablePreviewURLProtocol.reset() }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CancellablePreviewURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = APIClient(baseURL: URL(string: "https://example.test")!, session: session)
+
+        do {
+            _ = try await client.rawFilePreviewData(
+                sessionID: "abc123",
+                path: "report.pdf",
+                maximumBytes: 4
+            )
+            XCTFail("Expected oversized preview data to be rejected.")
+        } catch let PreviewDownloadError.responseTooLarge(maximumBytes) {
+            XCTAssertEqual(maximumBytes, 4)
+        }
+
+        await fulfillment(of: [stopped], timeout: 1)
+    }
+
+    func testRemotePreviewUsesMIMEDiscoveredDocumentLimitBeforeReadingBody() async throws {
+        let data = Data(repeating: 0x41, count: 5)
+        let client = makeClient { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/pdf",
+                    "Content-Length": String(data.count)
+                ]
+            )
+            return (try XCTUnwrap(response), data)
+        }
+
+        do {
+            _ = try await client.remoteTranscriptMediaPreviewResource(
+                from: try XCTUnwrap(URL(string: "https://example.test/generated/image.png")),
+                maximumBytes: 8,
+                documentMaximumBytes: 4,
+                nameOrPath: "https://example.test/generated/image.png"
+            )
+            XCTFail("Expected MIME-discovered PDF to use the document limit.")
+        } catch let PreviewDownloadError.responseTooLarge(maximumBytes) {
+            XCTAssertEqual(maximumBytes, 4)
+        }
+    }
+
     func testMediaDataBuildsExpectedQueryAndReturnsBytes() async throws {
         let expectedData = Data([0x89, 0x50, 0x4E, 0x47])
         let mediaPath = "/Users/hermes/.hermes/browser_screenshots/result image.png"
@@ -712,5 +796,126 @@ final class APIClientWorkspaceFileTests: APIClientTestCase {
         XCTAssertEqual(payload.contentType, UTType.zip)
         XCTAssertFalse(payload.isImage)
         XCTAssertEqual(requestedPaths, ["/api/file/raw"])
+    }
+
+    @MainActor
+    func testFilePreviewLoadsPDFBytesFromRawEndpoint() async throws {
+        let pdfData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage()
+            "Goku PDF preview".draw(at: CGPoint(x: 24, y: 24), withAttributes: nil)
+        }
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/file/raw")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/pdf"]
+            )
+            return (try XCTUnwrap(response), pdfData)
+        }
+        let viewModel = try FilePreviewViewModel(
+            session: makeFilePreviewSession(),
+            server: XCTUnwrap(URL(string: "https://example.test")),
+            path: "Docs/report.PDF",
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        guard case let .pdf(previewDocument) = viewModel.preview else {
+            return XCTFail("PDF files should load into the native PDF preview state.")
+        }
+        XCTAssertEqual(previewDocument.document.pageCount, 1)
+        XCTAssertNil(viewModel.errorMessage)
+        let exportPayload = try await viewModel.exportPayload()
+        XCTAssertEqual(exportPayload.data, pdfData)
+    }
+
+    func testPDFPreviewDocumentRejectsZeroPageDocuments() {
+        XCTAssertFalse(PDFPreviewDocument.isPreviewable(PDFDocument()))
+    }
+
+    @MainActor
+    func testFilePreviewLoadsMarkdownFromTextEndpoint() async throws {
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/file")
+            return apiTestJSONResponse("""
+            {
+              "path": "Docs/readme.md",
+              "content": "# Heading\\n\\nReadable prose.",
+              "size": 28,
+              "lines": 3
+            }
+            """, for: request)
+        }
+        let viewModel = try FilePreviewViewModel(
+            session: makeFilePreviewSession(),
+            server: XCTUnwrap(URL(string: "https://example.test")),
+            path: "Docs/readme.md",
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        guard case let .markdown(file) = viewModel.preview else {
+            return XCTFail("Markdown files should use the rendered document state.")
+        }
+        XCTAssertEqual(file.content, "# Heading\n\nReadable prose.")
+        XCTAssertNil(viewModel.errorMessage)
+    }
+}
+
+private final class CancellablePreviewURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var configuredContentLength = 0
+    private static var stoppedHandler: (() -> Void)?
+
+    static func configure(contentLength: Int, stopped: @escaping () -> Void) {
+        lock.lock()
+        configuredContentLength = contentLength
+        stoppedHandler = stopped
+        lock.unlock()
+    }
+
+    static func reset() {
+        lock.lock()
+        configuredContentLength = 0
+        stoppedHandler = nil
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let contentLength = Self.configuredContentLength
+        Self.lock.unlock()
+
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "Content-Type": "application/pdf",
+                    "Content-Length": String(contentLength)
+                ]
+              )
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        let handler = Self.stoppedHandler
+        Self.lock.unlock()
+        handler?()
     }
 }

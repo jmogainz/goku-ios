@@ -1,3 +1,4 @@
+import PDFKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -10,7 +11,7 @@ struct FilePreviewView: View {
     @State private var selectableText: SelectableTextPresentation?
     @State private var exportDocument = ExportedFileDocument(data: Data())
     @State private var exportContentType = UTType.data
-    @State private var exportFilename = String(localized: "Hermes File")
+    @State private var exportFilename = String(localized: "Goku File")
     @State private var isFileExporterPresented = false
     @State private var exportErrorMessage: String?
     @State private var saveConfirmationMessage: String?
@@ -133,6 +134,10 @@ struct FilePreviewView: View {
         switch preview {
         case let .text(file):
             fileContent(file.content ?? "")
+        case let .markdown(file):
+            fileContent(file.content ?? "")
+        case let .pdf(document):
+            pdfContent(document)
         case let .image(file):
             imageContent(file.data)
         case .audio:
@@ -196,8 +201,13 @@ struct FilePreviewView: View {
     }
 
     private var isMarkdownFile: Bool {
-        guard let path = entry.path else { return false }
-        return ["md", "markdown", "mdown", "mkd"].contains((path as NSString).pathExtension.lowercased())
+        DocumentPreviewKind.infer(nameOrPath: entry.path) == .markdown
+    }
+
+    private func pdfContent(_ document: PDFPreviewDocument) -> some View {
+        PDFDocumentView(document: document)
+            .background(Color(.systemGroupedBackground))
+            .accessibilityLabel(String(localized: "PDF document \(displayName)"))
     }
 
     @ViewBuilder
@@ -322,5 +332,30 @@ struct FilePreviewView: View {
 
     private var exportActionsAreDisabled: Bool {
         viewModel.isExporting || isSavingToPhotos
+    }
+}
+
+struct PDFDocumentView: UIViewRepresentable {
+    let document: PDFPreviewDocument
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.displaysPageBreaks = true
+        view.pageShadowsEnabled = true
+        view.backgroundColor = .systemGroupedBackground
+        return view
+    }
+
+    func updateUIView(_ view: PDFView, context: Context) {
+        guard view.document !== document.document else { return }
+        view.document = document.document
+        view.autoScales = true
+    }
+
+    static func dismantleUIView(_ view: PDFView, coordinator: ()) {
+        view.document = nil
     }
 }

@@ -1,19 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "hermes_mobile_light_icon.png",
-      "idiom" : "universal",
-      "platform" : "ios",
-      "size" : "1024x1024"
-    },
-    {
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ],
-      "filename" : "hermes_mobile_dark_icon.png",
+      "filename" : "goku_app_icon.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

@@ -145,10 +145,6 @@ struct SettingsView: View {
                     )
 
                     SettingsFootnote(String(localized: "Apply your header color to these primary buttons."))
-
-                    SettingsDivider()
-
-                    AppIconSettingsSection()
                 }
 
                 SettingsCard(title: String(localized: "Interaction")) {
@@ -434,16 +430,16 @@ struct SettingsView: View {
                     if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                         Link(destination: settingsURL) {
                             SettingsAccessoryRow(
-                                title: String(localized: "Open Hermex Settings"),
+                                title: String(localized: "Open Goku Settings"),
                                 systemImage: "gearshape",
                                 accessorySystemImage: "arrow.up.forward"
                             )
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Open Hermex Settings")
+                        .accessibilityLabel("Open Goku Settings")
                     }
 
-                    SettingsFootnote(String(localized: "Run Hermex actions like New Chat from Siri, Spotlight, the Lock Screen, or the iPhone Action button. Open Hermex Settings to manage its Siri & Search options. To assign an action to the Action button, open the iOS Settings app, choose Action Button, then Shortcut, and pick a Hermex action."))
+                    SettingsFootnote(String(localized: "Run Goku actions like New Chat from Siri, Spotlight, the Lock Screen, or the iPhone Action button. Open Goku Settings to manage its Siri & Search options. To assign an action to the Action button, open the iOS Settings app, choose Action Button, then Shortcut, and pick a Goku action."))
                 }
 
                 serversCard
@@ -1433,7 +1429,7 @@ private struct HeaderLogoColorSettings: View {
             }
             .font(.subheadline)
 
-            HermesHeaderLogo(selectedColor: HeaderLogoColor.color(for: selectedHex))
+            GokuHeaderLogo(selectedColor: HeaderLogoColor.color(for: selectedHex))
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .padding(.horizontal, 12)

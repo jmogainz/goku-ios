@@ -1,24 +1,24 @@
 import SwiftUI
 import SwiftData
 
-struct HermexSceneActions {
+struct GokuSceneActions {
     let canCreateNewChat: Bool
     let createNewChat: () -> Void
     let searchSessions: () -> Void
 }
 
-private struct HermexSceneActionsKey: FocusedValueKey {
-    typealias Value = HermexSceneActions
+private struct GokuSceneActionsKey: FocusedValueKey {
+    typealias Value = GokuSceneActions
 }
 
 extension FocusedValues {
-    var hermexSceneActions: HermexSceneActions? {
-        get { self[HermexSceneActionsKey.self] }
-        set { self[HermexSceneActionsKey.self] = newValue }
+    var hermexSceneActions: GokuSceneActions? {
+        get { self[GokuSceneActionsKey.self] }
+        set { self[GokuSceneActionsKey.self] = newValue }
     }
 }
 
-struct HermexCommands: Commands {
+struct GokuCommands: Commands {
     @FocusedValue(\.hermexSceneActions) private var actions
 
     var body: some Commands {
@@ -50,7 +50,7 @@ struct HermesMobileApp: App {
             #if DEBUG
             // Launch argument hook so the Streaming Lab can be opened without
             // UI navigation (agent-driven simulator diagnosis, issue #234):
-            // `xcrun simctl launch <udid> com.uzairansar.hermesmobile --streaming-lab`
+            // `xcrun simctl launch <udid> com.jacobmoore.goku --streaming-lab`
             if ProcessInfo.processInfo.arguments.contains("--streaming-lab") {
                 NavigationStack {
                     StreamingLabView()
@@ -66,7 +66,7 @@ struct HermesMobileApp: App {
         }
         .modelContainer(for: [CachedSession.self, CachedMessage.self])
         .commands {
-            HermexCommands()
+            GokuCommands()
             SidebarCommands()
         }
     }

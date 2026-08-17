@@ -1,5 +1,17 @@
 import Foundation
 
+enum PreviewDownloadError: LocalizedError, Equatable {
+    case responseTooLarge(maximumBytes: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .responseTooLarge(let maximumBytes):
+            let limit = ByteCountFormatter.string(fromByteCount: Int64(maximumBytes), countStyle: .file)
+            return String(localized: "This document is too large to preview. The preview limit is \(limit).")
+        }
+    }
+}
+
 actor APIClient {
     let baseURL: URL
     let session: URLSession
@@ -203,11 +215,113 @@ actor APIClient {
         return (data, httpResponse)
     }
 
+    func boundedData(
+        endpoint: Endpoint,
+        maximumBytes: Int,
+        accept: String = "*/*"
+    ) async throws -> (Data, HTTPURLResponse) {
+        var request = URLRequest(url: endpoint.url(relativeTo: baseURL))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        customHeaderProvider().apply(to: &request)
+        request.setValue(accept, forHTTPHeaderField: "Accept")
+        return try await boundedData(
+            for: request,
+            using: session,
+            mapsUnauthorized: true,
+            maximumBytes: maximumBytes
+        )
+    }
+
+    func boundedData(
+        for request: URLRequest,
+        using session: URLSession,
+        mapsUnauthorized: Bool,
+        maximumBytes: Int,
+        maximumBytesForResponse: ((HTTPURLResponse) -> Int)? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        precondition(maximumBytes >= 0)
+
+        let result: (URLSession.AsyncBytes, URLResponse)
+        do {
+            result = try await session.bytes(for: request)
+        } catch {
+            throw APIError.network(underlying: error)
+        }
+
+        let bytes = result.0
+        defer { bytes.task.cancel() }
+        guard let httpResponse = result.1 as? HTTPURLResponse else {
+            throw APIError.http(statusCode: -1, body: nil)
+        }
+
+        let effectiveMaximumBytes = maximumBytesForResponse?(httpResponse) ?? maximumBytes
+        precondition(effectiveMaximumBytes >= 0)
+
+        if mapsUnauthorized && httpResponse.statusCode == 401 {
+            throw APIError.unauthorized
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            var errorData = Data()
+            do {
+                for try await byte in bytes {
+                    guard errorData.count < 64 * 1_024 else { break }
+                    errorData.append(byte)
+                }
+            } catch {
+                throw APIError.network(underlying: error)
+            }
+            throw APIError.http(
+                statusCode: httpResponse.statusCode,
+                body: String(data: errorData, encoding: .utf8)
+            )
+        }
+
+        if httpResponse.expectedContentLength > Int64(effectiveMaximumBytes) {
+            throw PreviewDownloadError.responseTooLarge(maximumBytes: effectiveMaximumBytes)
+        }
+
+        var data = Data()
+        if httpResponse.expectedContentLength > 0 {
+            data.reserveCapacity(min(Int(httpResponse.expectedContentLength), effectiveMaximumBytes))
+        }
+
+        do {
+            for try await byte in bytes {
+                guard data.count < effectiveMaximumBytes else {
+                    throw PreviewDownloadError.responseTooLarge(maximumBytes: effectiveMaximumBytes)
+                }
+                data.append(byte)
+            }
+        } catch let error as PreviewDownloadError {
+            throw error
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.network(underlying: error)
+        }
+
+        return (data, httpResponse)
+    }
+
     func downloadData(
         from url: URL,
         using session: URLSession,
         mapsUnauthorized: Bool
     ) async throws -> Data {
+        try await downloadDataReturningResponse(
+            from: url,
+            using: session,
+            mapsUnauthorized: mapsUnauthorized
+        ).0
+    }
+
+    func downloadDataReturningResponse(
+        from url: URL,
+        using session: URLSession,
+        mapsUnauthorized: Bool
+    ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -245,7 +359,7 @@ actor APIClient {
             )
         }
 
-        return data
+        return (data, httpResponse)
     }
 
     static func isSameOrigin(_ url: URL, as baseURL: URL) -> Bool {

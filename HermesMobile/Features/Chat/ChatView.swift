@@ -1943,7 +1943,7 @@ struct ChatView: View {
     private func beginResponseCompletionBackgroundTask() {
         guard responseCompletionBackgroundTask == .invalid else { return }
 
-        let taskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "Hermes response completion") {
+        let taskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "Goku response completion") {
             Task { @MainActor in
                 endResponseCompletionBackgroundTask()
                 viewModel.suspendStreamForBackground()

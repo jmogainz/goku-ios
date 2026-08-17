@@ -77,6 +77,39 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    func testGokuBrandKeysDoNotReferencePreviousProductNames() throws {
+        let data = try Data(contentsOf: catalogURL())
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let strings = try XCTUnwrap(root["strings"] as? [String: Any])
+        let staleBrandPattern = try NSRegularExpression(pattern: #"\b(?:Hermes|Hermex)\b"#, options: [.caseInsensitive])
+
+        for (key, rawEntry) in strings where key.localizedCaseInsensitiveContains("Goku") {
+            guard let entry = rawEntry as? [String: Any],
+                  let localizations = entry["localizations"] as? [String: Any] else { continue }
+
+            for language in Self.shippedLanguages {
+                let localization = try XCTUnwrap(localizations[language] as? [String: Any], "[\(language)] \(key)")
+                let value = try XCTUnwrap(
+                    (localization["stringUnit"] as? [String: Any])?["value"] as? String,
+                    "[\(language)] \(key)"
+                )
+                let range = NSRange(value.startIndex..<value.endIndex, in: value)
+                XCTAssertNil(
+                    staleBrandPattern.firstMatch(in: value, range: range),
+                    "[\(language)] \(key) still references the previous product brand: \(value)"
+                )
+            }
+        }
+    }
+
+    func testGitBranchPlaceholderUsesGokuBrand() throws {
+        let sourceURL = resourceURL("HermesMobile/Features/Workspace/GitBranchPickerView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("goku/my-feature"))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("hermex/my-feature"))
+    }
+
     func testAppShortcutPhrasesHaveDedicatedCatalogEntries() throws {
         let url = resourceURL("HermesMobile/Resources/AppShortcuts.xcstrings")
         let data = try Data(contentsOf: url)
@@ -196,11 +229,11 @@ final class LocalizationCatalogTests: XCTestCase {
             "Browse Board",
             "Browse Board: %@",
             "Browsing",
-            "Browsing a Board stays local to Hermex. Making a Board active changes shared server state.",
+            "Browsing a Board stays local to Goku. Making a Board active changes shared server state.",
             "Check Result",
             "Choose Board",
             "Creating a Board does not make it active.",
-            "Hermex cannot restore an archived Board in-app.",
+            "Goku cannot restore an archived Board in-app.",
             "Icon",
             "Make Active Board",
             "Making this Board active changes shared server state for other Hermes clients.",
@@ -240,7 +273,7 @@ final class LocalizationCatalogTests: XCTestCase {
             "Dispatcher, result available",
             "Dispatcher is unavailable on this server.",
             "Group by Profile",
-            "Hermex refreshed the Board, but cannot prove whether workers started. Review the current Board before running Dispatcher again.",
+            "Goku refreshed the Board, but cannot prove whether workers started. Review the current Board before running Dispatcher again.",
             "I Reviewed the Board",
             "Preview Dispatch",
             "Preview is advisory and may become stale. It never starts workers.",
@@ -252,7 +285,7 @@ final class LocalizationCatalogTests: XCTestCase {
             "Skipped—No Assignee",
             "Skipped—Unknown Profile",
             "Spawned",
-            "The server refused this Dispatcher request. Hermex did not retry it.",
+            "The server refused this Dispatcher request. Goku did not retry it.",
             "This Preview is stale. Run Preview Dispatch again before relying on it.",
             "This may start up to %lld workers and consume API budget.",
             "Timed Out"
