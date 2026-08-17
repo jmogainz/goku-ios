@@ -221,7 +221,105 @@ final class APIClientChatEndpointTests: APIClientTestCase {
         XCTAssertEqual(item.displayName, "report.pdf")
         XCTAssertEqual(item.displayPath, "/tmp/workspace/report.pdf")
         XCTAssertFalse(item.inferredIsImage)
-        XCTAssertTrue(item.isKnownUnsupportedBinary)
+        XCTAssertEqual(item.documentKind, .pdf)
+        XCTAssertFalse(item.isKnownUnsupportedBinary)
+    }
+
+    func testChatAttachmentPreviewItemRecognizesMarkdownFromMIMEWithoutExtension() {
+        let item = ChatAttachmentPreviewItem(
+            pending: PendingAttachment(
+                name: "release-notes",
+                path: "/tmp/workspace/release-notes",
+                mime: "text/markdown; charset=utf-8",
+                size: 512,
+                isImage: false,
+                thumbnailData: nil
+            )
+        )
+
+        XCTAssertEqual(item.documentKind, .markdown)
+        XCTAssertFalse(item.isKnownUnsupportedBinary)
+    }
+
+    @MainActor
+    func testChatAttachmentPreviewLoadsPDFBytesFromRawEndpoint() async throws {
+        let pdfData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage()
+            "Attachment PDF".draw(at: CGPoint(x: 24, y: 24), withAttributes: nil)
+        }
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/file/raw")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/pdf"]
+            )
+            return (try XCTUnwrap(response), pdfData)
+        }
+        let item = ChatAttachmentPreviewItem(
+            pending: PendingAttachment(
+                name: "report.pdf",
+                path: "/tmp/workspace/report.pdf",
+                mime: "application/pdf",
+                size: pdfData.count,
+                isImage: false,
+                thumbnailData: nil
+            )
+        )
+        let viewModel = try ChatAttachmentPreviewViewModel(
+            session: makeFilePreviewSession(),
+            server: XCTUnwrap(URL(string: "https://example.test")),
+            item: item,
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        guard case let .pdf(data) = viewModel.preview else {
+            return XCTFail("PDF attachments should load into the native PDF preview state.")
+        }
+        XCTAssertEqual(data, pdfData)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    @MainActor
+    func testChatAttachmentPreviewLoadsMarkdownFromTextEndpoint() async throws {
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/file")
+            return apiTestJSONResponse("""
+            {
+              "path": "/tmp/workspace/notes.md",
+              "content": "# Notes\\n\\nRendered markdown.",
+              "size": 28,
+              "lines": 3
+            }
+            """, for: request)
+        }
+        let item = ChatAttachmentPreviewItem(
+            pending: PendingAttachment(
+                name: "notes.md",
+                path: "/tmp/workspace/notes.md",
+                mime: "text/markdown",
+                size: 28,
+                isImage: false,
+                thumbnailData: nil
+            )
+        )
+        let viewModel = try ChatAttachmentPreviewViewModel(
+            session: makeFilePreviewSession(),
+            server: XCTUnwrap(URL(string: "https://example.test")),
+            item: item,
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        guard case let .markdown(file) = viewModel.preview else {
+            return XCTFail("Markdown attachments should load into the rendered document state.")
+        }
+        XCTAssertEqual(file.content, "# Notes\n\nRendered markdown.")
+        XCTAssertNil(viewModel.errorMessage)
     }
 
     func testCancelChatBuildsExpectedQuery() async throws {

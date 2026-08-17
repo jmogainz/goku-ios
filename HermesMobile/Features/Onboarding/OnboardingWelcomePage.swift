@@ -62,12 +62,12 @@ struct OnboardingWelcomePage: View {
                         .shadow(color: Color(red: 1.0, green: 0.62, blue: 0.08).opacity(0.35), radius: 24, y: 10)
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Hermex")
+                .accessibilityLabel("Goku")
 
                 Spacer(minLength: 32)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Control your Hermes agent from iPhone or iPad.")
+                    Text("Control Goku from iPhone or iPad.")
                         .font(.system(size: dynamicTypeSize.isAccessibilitySize ? 27 : 31, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(3)

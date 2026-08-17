@@ -132,6 +132,15 @@ private struct TranscriptMediaThumbnailView: View {
             .buttonStyle(.chatTactile(.thumbnail))
             .accessibilityLabel(String(localized: "Open media video \(reference.displayName)"))
 
+        case .pdf, .markdown:
+            Button {
+                onPreviewMedia?(reference)
+            } label: {
+                TranscriptMediaDocumentTile(reference: reference)
+            }
+            .buttonStyle(.chatTactile(.thumbnail))
+            .accessibilityLabel(String(localized: "Open document \(reference.displayName)"))
+
         case .unsupported where loadMediaData != nil:
             if let loadMediaData {
                 TranscriptMediaFileExportView(
@@ -293,7 +302,7 @@ private struct TranscriptMediaAudioExportView: View {
     @State private var cachedData: Data?
     @State private var exportDocument = ExportedFileDocument(data: Data())
     @State private var exportContentType = UTType.audio
-    @State private var exportFilename = String(localized: "Hermes Media")
+    @State private var exportFilename = String(localized: "Goku Media")
     @State private var isFileExporterPresented = false
     @State private var isExporting = false
     @State private var errorMessage: String?
@@ -392,7 +401,7 @@ private struct TranscriptMediaFileExportView: View {
     @State private var cachedData: Data?
     @State private var exportDocument = ExportedFileDocument(data: Data())
     @State private var exportContentType = UTType.data
-    @State private var exportFilename = String(localized: "Hermes Media")
+    @State private var exportFilename = String(localized: "Goku Media")
     @State private var isFileExporterPresented = false
     @State private var isExporting = false
     @State private var errorMessage: String?
@@ -543,6 +552,45 @@ private struct TranscriptMediaVideoTile: View {
     }
 }
 
+private struct TranscriptMediaDocumentTile: View {
+    let reference: TranscriptMediaReference
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: reference.mediaKind == .pdf ? "doc.richtext" : "text.document")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(reference.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(.label))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(reference.mediaKind == .pdf ? "PDF document" : "Markdown document")
+                    .font(.caption2)
+                    .foregroundStyle(Color(.secondaryLabel))
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color(.tertiaryLabel))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(.separator).opacity(0.35), lineWidth: 0.5)
+        )
+    }
+}
+
 private struct TranscriptMediaUnavailableChip: View {
     let reference: TranscriptMediaReference
 
@@ -586,6 +634,10 @@ private struct TranscriptMediaUnavailableChip: View {
             "waveform"
         case .video:
             "play.rectangle"
+        case .pdf:
+            "doc.richtext"
+        case .markdown:
+            "text.document"
         case .unsupported:
             "doc"
         }
@@ -647,7 +699,7 @@ struct TranscriptMediaPreviewView: View {
     @State private var viewModel: TranscriptMediaPreviewViewModel
     @State private var exportDocument = ExportedFileDocument(data: Data())
     @State private var exportContentType = UTType.data
-    @State private var exportFilename = String(localized: "Hermes Media")
+    @State private var exportFilename = String(localized: "Goku Media")
     @State private var isFileExporterPresented = false
     @State private var isExportingMedia = false
     @State private var isSavingToPhotos = false
@@ -688,6 +740,10 @@ struct TranscriptMediaPreviewView: View {
                             Task { await loadMedia(force: true) }
                         }
                     }
+                } else if let data = viewModel.pdfData {
+                    pdfContent(data)
+                } else if let markdown = viewModel.markdownText {
+                    markdownContent(markdown)
                 } else if let data = viewModel.previewData, let image = UIImage(data: data) {
                     imageContent(image)
                 } else if let audioData = viewModel.audioData {
@@ -786,6 +842,25 @@ struct TranscriptMediaPreviewView: View {
         .adaptivePagePresentation()
     }
 
+    private func pdfContent(_ data: Data) -> some View {
+        PDFDocumentView(data: data)
+            .background(Color(.systemGroupedBackground))
+            .accessibilityLabel(String(localized: "PDF document \(item.reference.displayName)"))
+    }
+
+    private func markdownContent(_ content: String) -> some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 16) {
+                mediaHeader
+
+                MarkdownRenderer(content: content, isStreaming: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding()
+        }
+        .background(Color(.systemBackground))
+    }
+
     private func imageContent(_ image: UIImage) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -857,6 +932,10 @@ struct TranscriptMediaPreviewView: View {
             "waveform"
         case .video:
             "play.rectangle"
+        case .pdf:
+            "doc.richtext"
+        case .markdown:
+            "text.document"
         case .unsupported:
             "doc.questionmark"
         }

@@ -713,4 +713,67 @@ final class APIClientWorkspaceFileTests: APIClientTestCase {
         XCTAssertFalse(payload.isImage)
         XCTAssertEqual(requestedPaths, ["/api/file/raw"])
     }
+
+    @MainActor
+    func testFilePreviewLoadsPDFBytesFromRawEndpoint() async throws {
+        let pdfData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage()
+            "Goku PDF preview".draw(at: CGPoint(x: 24, y: 24), withAttributes: nil)
+        }
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/file/raw")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/pdf"]
+            )
+            return (try XCTUnwrap(response), pdfData)
+        }
+        let viewModel = try FilePreviewViewModel(
+            session: makeFilePreviewSession(),
+            server: XCTUnwrap(URL(string: "https://example.test")),
+            path: "Docs/report.PDF",
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        guard case let .pdf(data) = viewModel.preview else {
+            return XCTFail("PDF files should load into the native PDF preview state.")
+        }
+        XCTAssertEqual(data, pdfData)
+        XCTAssertNil(viewModel.errorMessage)
+        let exportPayload = try await viewModel.exportPayload()
+        XCTAssertEqual(exportPayload.data, pdfData)
+    }
+
+    @MainActor
+    func testFilePreviewLoadsMarkdownFromTextEndpoint() async throws {
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/file")
+            return apiTestJSONResponse("""
+            {
+              "path": "Docs/readme.md",
+              "content": "# Heading\\n\\nReadable prose.",
+              "size": 28,
+              "lines": 3
+            }
+            """, for: request)
+        }
+        let viewModel = try FilePreviewViewModel(
+            session: makeFilePreviewSession(),
+            server: XCTUnwrap(URL(string: "https://example.test")),
+            path: "Docs/readme.md",
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        guard case let .markdown(file) = viewModel.preview else {
+            return XCTFail("Markdown files should use the rendered document state.")
+        }
+        XCTAssertEqual(file.content, "# Heading\n\nReadable prose.")
+        XCTAssertNil(viewModel.errorMessage)
+    }
 }

@@ -1,5 +1,43 @@
 import Foundation
+import PDFKit
 import UniformTypeIdentifiers
+
+enum DocumentPreviewKind: Equatable {
+    case pdf
+    case markdown
+
+    static func infer(nameOrPath: String?, mimeType: String? = nil) -> DocumentPreviewKind? {
+        let normalizedMIME = mimeType?
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if normalizedMIME == "application/pdf" {
+            return .pdf
+        }
+
+        if let normalizedMIME,
+           ["text/markdown", "text/x-markdown", "application/markdown"].contains(normalizedMIME) {
+            return .markdown
+        }
+
+        let pathExtension = URL(fileURLWithPath: nameOrPath ?? "").pathExtension.lowercased()
+        if pathExtension == "pdf" {
+            return .pdf
+        }
+
+        if ["md", "markdown", "mdown", "mkd"].contains(pathExtension) {
+            return .markdown
+        }
+
+        return nil
+    }
+
+    static func validPDFData(_ data: Data) -> Bool {
+        PDFDocument(data: data) != nil
+    }
+}
 
 @Observable
 final class FilePreviewViewModel {
@@ -58,6 +96,16 @@ final class FilePreviewViewModel {
                 } else {
                     preview = .unavailable(String(localized: "Could not decode this image."))
                 }
+            } else if documentKind == .pdf {
+                let data = try await apiClient.rawFileData(sessionID: sessionID, path: path)
+                exportData = data
+                preview = DocumentPreviewKind.validPDFData(data)
+                    ? .pdf(data)
+                    : .unavailable(String(localized: "Could not decode this PDF."))
+            } else if documentKind == .markdown {
+                let file = try await apiClient.file(sessionID: sessionID, path: path)
+                exportData = Data((file.content ?? "").utf8)
+                preview = .markdown(file)
             } else if isKnownUnsupportedBinaryPath {
                 preview = .unavailable(String(localized: "Preview is not available for this file type."))
             } else {
@@ -109,6 +157,10 @@ final class FilePreviewViewModel {
         URL(fileURLWithPath: path).pathExtension.lowercased()
     }
 
+    private var documentKind: DocumentPreviewKind? {
+        DocumentPreviewKind.infer(nameOrPath: path)
+    }
+
     private var isRasterImagePath: Bool {
         ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp"].contains(pathExtension)
     }
@@ -117,7 +169,7 @@ final class FilePreviewViewModel {
         [
             "7z", "a", "aiff", "avi", "bin", "bz2", "class", "db", "dmg", "doc",
             "docx", "dylib", "exe", "flac", "gz", "jar", "m4a", "mov", "mp3",
-            "mp4", "o", "pdf", "pkg", "ppt", "pptx", "pyc", "rar", "sqlite",
+            "mp4", "o", "pkg", "ppt", "pptx", "pyc", "rar", "sqlite",
             "svg", "tar", "tgz", "wav", "xls", "xlsx", "xz", "zip"
         ].contains(pathExtension)
     }
@@ -138,12 +190,14 @@ final class FilePreviewViewModel {
 
     private var exportFilename: String {
         let lastPathComponent = URL(fileURLWithPath: path).lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return lastPathComponent.isEmpty ? String(localized: "Hermes File") : lastPathComponent
+        return lastPathComponent.isEmpty ? String(localized: "Goku File") : lastPathComponent
     }
 }
 
 enum FilePreviewContent {
     case text(FileResponse)
+    case markdown(FileResponse)
+    case pdf(Data)
     case image(ImageFilePreview)
     case audio(Data)
     case unavailable(String)

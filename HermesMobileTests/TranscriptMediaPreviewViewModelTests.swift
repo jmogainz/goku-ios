@@ -153,6 +153,57 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
         XCTAssertEqual(recorder.requestCount, 1)
     }
 
+    func testLoadLocalPDFUsesMediaEndpointAndExposesPDFData() async throws {
+        let recorder = TranscriptMediaPreviewRequestRecorder()
+        let pdfData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage()
+            "Transcript PDF".draw(at: CGPoint(x: 24, y: 24), withAttributes: nil)
+        }
+        let client = makeClient { request in
+            recorder.record(request)
+            XCTAssertEqual(request.url?.path, "/api/media")
+            return self.response(statusCode: 200, data: pdfData, for: request)
+        }
+        let viewModel = TranscriptMediaPreviewViewModel(
+            server: Self.baseURL,
+            sessionID: "session-123",
+            reference: .init(rawReference: "/tmp/report.pdf"),
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.pdfData, pdfData)
+        XCTAssertNil(viewModel.markdownText)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.canExportMedia)
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
+    func testLoadLocalMarkdownUsesMediaEndpointAndDecodesText() async throws {
+        let recorder = TranscriptMediaPreviewRequestRecorder()
+        let markdown = "# Report\n\nReadable prose."
+        let client = makeClient { request in
+            recorder.record(request)
+            XCTAssertEqual(request.url?.path, "/api/media")
+            return self.response(statusCode: 200, data: Data(markdown.utf8), for: request)
+        }
+        let viewModel = TranscriptMediaPreviewViewModel(
+            server: Self.baseURL,
+            sessionID: "session-123",
+            reference: .init(rawReference: "/tmp/report.markdown"),
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        XCTAssertNil(viewModel.pdfData)
+        XCTAssertEqual(viewModel.markdownText, markdown)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.canExportMedia)
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
     func testUnsupportedMediaSetsUnavailableStateWithoutRequest() async {
         let recorder = TranscriptMediaPreviewRequestRecorder()
         let client = makeClient { request in

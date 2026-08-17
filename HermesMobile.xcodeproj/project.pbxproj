@@ -19,7 +19,7 @@
 		0D82B28493C6401D98DA9C0E /* SlashCommandExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6809B8F1391248A4AA77C453 /* SlashCommandExecutorTests.swift */; };
 		1A2B3C4D5E6F700000000001 /* HermesMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000011 /* HermesMobileApp.swift */; };
 		1A2B3C4D5E6F700000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000012 /* ContentView.swift */; };
-		1A2B3C4D5E6F700000000338 /* HermexAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000337 /* HermexAppIntents.swift */; };
+		1A2B3C4D5E6F700000000338 /* GokuAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000337 /* GokuAppIntents.swift */; };
 		1A2B3C4D5E6F700000000343 /* ProfileEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000342 /* ProfileEntity.swift */; };
 		1A2B3C4D5E6F700000000341 /* AppIntentNewChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000340 /* AppIntentNewChatTests.swift */; };
 		1A2B3C4D5E6F700000000345 /* AppIntentNewChatInProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700000000344 /* AppIntentNewChatInProfileTests.swift */; };
@@ -363,7 +363,7 @@
 		1A2B3C4D5E6F700000000010 /* HermesMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HermesMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D5E6F700000000011 /* HermesMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesMobileApp.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F700000000337 /* HermexAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermexAppIntents.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F700000000337 /* GokuAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GokuAppIntents.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700000000342 /* ProfileEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileEntity.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700000000340 /* AppIntentNewChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentNewChatTests.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700000000344 /* AppIntentNewChatInProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentNewChatInProfileTests.swift; sourceTree = "<group>"; };
@@ -1167,7 +1167,7 @@
 		1A2B3C4D5E6F700000000339 /* AppIntents */ = {
 			isa = PBXGroup;
 			children = (
-				1A2B3C4D5E6F700000000337 /* HermexAppIntents.swift */,
+				1A2B3C4D5E6F700000000337 /* GokuAppIntents.swift */,
 				1A2B3C4D5E6F700000000342 /* ProfileEntity.swift */,
 			);
 			path = AppIntents;
@@ -1424,7 +1424,7 @@
 			files = (
 				1A2B3C4D5E6F700000000001 /* HermesMobileApp.swift in Sources */,
 				1A2B3C4D5E6F700000000002 /* ContentView.swift in Sources */,
-				1A2B3C4D5E6F700000000338 /* HermexAppIntents.swift in Sources */,
+				1A2B3C4D5E6F700000000338 /* GokuAppIntents.swift in Sources */,
 				1A2B3C4D5E6F700000000343 /* ProfileEntity.swift in Sources */,
 				1A2B3C4D5E6F7000000000A1 /* AuthManager.swift in Sources */,
 				1A2B3C4D5E6F700000000300 /* ServerAccount.swift in Sources */,
@@ -1762,7 +1762,7 @@
 			baseConfigurationReference = 351C0F1600000000000000A1 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				APP_DISPLAY_NAME = Hermex;
+				APP_DISPLAY_NAME = Goku;
 				APP_URL_SCHEME_SUFFIX = "";
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -1811,7 +1811,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HERMES_URL_SCHEME = "hermes-agent$(APP_URL_SCHEME_SUFFIX)";
+				HERMES_URL_SCHEME = "goku$(APP_URL_SCHEME_SUFFIX)";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				KEYCHAIN_SERVICE = "$(APP_BUNDLE_IDENTIFIER)";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -1829,7 +1829,7 @@
 			baseConfigurationReference = 351C0F1600000000000000A1 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				APP_DISPLAY_NAME = Hermex;
+				APP_DISPLAY_NAME = Goku;
 				APP_URL_SCHEME_SUFFIX = "";
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -1872,7 +1872,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HERMES_URL_SCHEME = "hermes-agent$(APP_URL_SCHEME_SUFFIX)";
+				HERMES_URL_SCHEME = "goku$(APP_URL_SCHEME_SUFFIX)";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				KEYCHAIN_SERVICE = "$(APP_BUNDLE_IDENTIFIER)";
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -1901,7 +1901,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1930,7 +1930,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1955,7 +1955,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1979,7 +1979,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -2005,7 +2005,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).shareextension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -2033,7 +2033,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).shareextension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -2060,7 +2060,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).liveactivitywidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -2087,7 +2087,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).liveactivitywidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

@@ -939,8 +939,8 @@ struct SessionListView: View {
         searchFieldIsFocused = true
     }
 
-    private var sceneActions: HermexSceneActions {
-        HermexSceneActions(
+    private var sceneActions: GokuSceneActions {
+        GokuSceneActions(
             canCreateNewChat: !viewModel.isViewingCachedData && !navigationState.isCreatingNewChat,
             createNewChat: openNewChatFromKeyboard,
             searchSessions: openSearchFromKeyboard
@@ -1295,7 +1295,7 @@ struct HermesHeaderLogo: View {
         .aspectRatio(Self.aspectRatio, contentMode: .fit)
         .compositingGroup()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("HERMEX")
+        .accessibilityLabel("GOKU")
     }
 }
 
@@ -1471,7 +1471,7 @@ private struct PendingNewChatView: View {
 
     private var pendingComposer: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            TextField("Message Hermex", text: $draftMessage, axis: .vertical)
+            TextField("Message Goku", text: $draftMessage, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .focused($composerIsFocused)

@@ -15,6 +15,8 @@ final class TranscriptMediaPreviewViewModel {
 
     private(set) var previewData: Data?
     private(set) var audioData: Data?
+    private(set) var pdfData: Data?
+    private(set) var markdownText: String?
     private(set) var videoFileURL: URL?
     private(set) var originalByteCount: Int?
     private(set) var isLoading = false
@@ -55,12 +57,18 @@ final class TranscriptMediaPreviewViewModel {
         didLoad = true
         previewData = nil
         audioData = nil
+        pdfData = nil
+        markdownText = nil
         videoFileURL = nil
         originalByteCount = nil
         originalData = nil
         removeTemporaryVideoFile()
 
-        guard reference.isRasterImageCandidate || reference.isVideoCandidate else {
+        guard reference.isRasterImageCandidate
+                || reference.isVideoCandidate
+                || reference.isPDFCandidate
+                || reference.isMarkdownCandidate
+        else {
             errorMessage = String(localized: "Preview is not available for this media type.")
             return
         }
@@ -80,7 +88,19 @@ final class TranscriptMediaPreviewViewModel {
             originalData = data
             originalByteCount = data.count
 
-            if reference.isVideoCandidate {
+            if reference.isPDFCandidate {
+                if DocumentPreviewKind.validPDFData(data) {
+                    pdfData = data
+                } else {
+                    errorMessage = String(localized: "Could not decode this PDF.")
+                }
+            } else if reference.isMarkdownCandidate {
+                if let text = String(data: data, encoding: .utf8) {
+                    markdownText = text
+                } else {
+                    errorMessage = String(localized: "Could not decode this Markdown document.")
+                }
+            } else if reference.isVideoCandidate {
                 let fileURL = try writeTemporaryVideoFile(data)
                 guard !Task.isCancelled, loadGeneration == generation else {
                     try? FileManager.default.removeItem(at: fileURL)
@@ -167,6 +187,8 @@ final class TranscriptMediaPreviewViewModel {
         loadGeneration += 1
         isLoading = false
         audioData = nil
+        pdfData = nil
+        markdownText = nil
         removeTemporaryVideoFile()
         videoFileURL = nil
     }

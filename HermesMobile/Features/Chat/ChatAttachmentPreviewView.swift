@@ -61,8 +61,12 @@ struct ChatAttachmentPreviewItem: Identifiable, Equatable {
         AttachmentAudioDetection.isAudio(isImage: isImage, mime: mime, name: name, path: path)
     }
 
+    var documentKind: DocumentPreviewKind? {
+        DocumentPreviewKind.infer(nameOrPath: name ?? path, mimeType: mime)
+    }
+
     var isKnownUnsupportedBinary: Bool {
-        Self.unsupportedBinaryExtensions.contains(pathExtension)
+        documentKind == nil && Self.unsupportedBinaryExtensions.contains(pathExtension)
     }
 
     private var pathExtension: String {
@@ -76,7 +80,7 @@ struct ChatAttachmentPreviewItem: Identifiable, Equatable {
     private static let unsupportedBinaryExtensions: Set<String> = [
         "7z", "a", "aiff", "avi", "bin", "bz2", "class", "db", "dmg", "doc",
         "docx", "dylib", "exe", "flac", "gz", "jar", "m4a", "mov", "mp3",
-        "mp4", "o", "pdf", "pkg", "ppt", "pptx", "pyc", "rar", "sqlite",
+        "mp4", "o", "pkg", "ppt", "pptx", "pyc", "rar", "sqlite",
         "svg", "tar", "tgz", "wav", "xls", "xlsx", "xz", "zip"
     ]
 }
@@ -145,6 +149,10 @@ struct ChatAttachmentPreviewView: View {
         switch preview {
         case let .text(file):
             textContent(file)
+        case let .markdown(file):
+            markdownContent(file)
+        case let .pdf(data):
+            pdfContent(data)
         case let .image(file):
             imageContent(file)
         case let .audio(data):
@@ -182,6 +190,25 @@ struct ChatAttachmentPreviewView: View {
             .padding()
         }
         .background(Color(.systemBackground))
+    }
+
+    private func markdownContent(_ file: FileResponse) -> some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 12) {
+                fileHeader
+
+                MarkdownRenderer(content: file.content ?? "", isStreaming: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding()
+        }
+        .background(Color(.systemBackground))
+    }
+
+    private func pdfContent(_ data: Data) -> some View {
+        PDFDocumentView(data: data)
+            .background(Color(.systemGroupedBackground))
+            .accessibilityLabel(String(localized: "PDF document \(item.displayName)"))
     }
 
     @ViewBuilder
@@ -241,13 +268,15 @@ struct ChatAttachmentPreviewView: View {
 
         if let preview = viewModel.preview {
             switch preview {
-            case let .text(file):
+            case let .text(file), let .markdown(file):
                 if let size = file.size {
                     parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
                 }
                 if let lines = file.lines {
                     parts.append(String(localized: "\(lines) lines"))
                 }
+            case let .pdf(data):
+                parts.append(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
             case let .image(file):
                 parts.append(ByteCountFormatter.string(fromByteCount: Int64(file.originalByteCount), countStyle: .file))
             case let .audio(data):
@@ -288,10 +317,15 @@ final class ChatAttachmentPreviewViewModel {
     private(set) var errorMessage: String?
     private(set) var lastError: Error?
 
-    init(session: SessionSummary, server: URL, item: ChatAttachmentPreviewItem) {
+    init(
+        session: SessionSummary,
+        server: URL,
+        item: ChatAttachmentPreviewItem,
+        apiClient: APIClient? = nil
+    ) {
         self.session = session
         self.item = item
-        apiClient = APIClient(baseURL: server)
+        self.apiClient = apiClient ?? APIClient(baseURL: server)
     }
 
     func load(force: Bool = false) async {
@@ -331,6 +365,13 @@ final class ChatAttachmentPreviewViewModel {
                 // encoded audio; checked before the unsupported-binary list,
                 // which would otherwise reject m4a/mp3/wav/flac.
                 preview = .audio(try await apiClient.rawFileData(sessionID: sessionID, path: path))
+            } else if item.documentKind == .pdf {
+                let data = try await apiClient.rawFileData(sessionID: sessionID, path: path)
+                preview = DocumentPreviewKind.validPDFData(data)
+                    ? .pdf(data)
+                    : .unavailable(String(localized: "Could not decode this PDF."))
+            } else if item.documentKind == .markdown {
+                preview = .markdown(try await apiClient.file(sessionID: sessionID, path: path))
             } else if item.isKnownUnsupportedBinary {
                 preview = .unavailable(String(localized: "Preview is not available for this file type."))
             } else {

@@ -1,4 +1,4 @@
-Hermex third-party notices
+Goku third-party notices
 
 This folder contains license notices for third-party code and assets bundled
 with the iOS app.
