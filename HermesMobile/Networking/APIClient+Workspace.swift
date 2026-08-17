@@ -110,7 +110,9 @@ extension APIClient {
 
     func remoteTranscriptMediaPreviewResource(
         from url: URL,
-        maximumBytes: Int
+        maximumBytes: Int,
+        documentMaximumBytes: Int? = nil,
+        nameOrPath: String? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         let isSameOrigin = Self.isSameOrigin(url, as: baseURL)
         var request = URLRequest(url: url)
@@ -125,7 +127,18 @@ extension APIClient {
             for: request,
             using: isSameOrigin ? session : publicMediaSession,
             mapsUnauthorized: isSameOrigin,
-            maximumBytes: maximumBytes
+            maximumBytes: maximumBytes,
+            maximumBytesForResponse: { response in
+                guard let documentMaximumBytes,
+                      DocumentPreviewKind.infer(
+                        nameOrPath: nameOrPath,
+                        mimeType: response.value(forHTTPHeaderField: "Content-Type")
+                      ) != nil
+                else {
+                    return maximumBytes
+                }
+                return min(maximumBytes, documentMaximumBytes)
+            }
         )
     }
 }

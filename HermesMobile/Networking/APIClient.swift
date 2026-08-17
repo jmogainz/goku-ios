@@ -237,7 +237,8 @@ actor APIClient {
         for request: URLRequest,
         using session: URLSession,
         mapsUnauthorized: Bool,
-        maximumBytes: Int
+        maximumBytes: Int,
+        maximumBytesForResponse: ((HTTPURLResponse) -> Int)? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         precondition(maximumBytes >= 0)
 
@@ -249,9 +250,13 @@ actor APIClient {
         }
 
         let bytes = result.0
+        defer { bytes.task.cancel() }
         guard let httpResponse = result.1 as? HTTPURLResponse else {
             throw APIError.http(statusCode: -1, body: nil)
         }
+
+        let effectiveMaximumBytes = maximumBytesForResponse?(httpResponse) ?? maximumBytes
+        precondition(effectiveMaximumBytes >= 0)
 
         if mapsUnauthorized && httpResponse.statusCode == 401 {
             throw APIError.unauthorized
@@ -273,19 +278,19 @@ actor APIClient {
             )
         }
 
-        if httpResponse.expectedContentLength > Int64(maximumBytes) {
-            throw PreviewDownloadError.responseTooLarge(maximumBytes: maximumBytes)
+        if httpResponse.expectedContentLength > Int64(effectiveMaximumBytes) {
+            throw PreviewDownloadError.responseTooLarge(maximumBytes: effectiveMaximumBytes)
         }
 
         var data = Data()
         if httpResponse.expectedContentLength > 0 {
-            data.reserveCapacity(min(Int(httpResponse.expectedContentLength), maximumBytes))
+            data.reserveCapacity(min(Int(httpResponse.expectedContentLength), effectiveMaximumBytes))
         }
 
         do {
             for try await byte in bytes {
-                guard data.count < maximumBytes else {
-                    throw PreviewDownloadError.responseTooLarge(maximumBytes: maximumBytes)
+                guard data.count < effectiveMaximumBytes else {
+                    throw PreviewDownloadError.responseTooLarge(maximumBytes: effectiveMaximumBytes)
                 }
                 data.append(byte)
             }

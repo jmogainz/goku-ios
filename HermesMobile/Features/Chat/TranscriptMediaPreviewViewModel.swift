@@ -185,20 +185,12 @@ final class TranscriptMediaPreviewViewModel {
             let data = try await apiClient.transcriptMediaData(for: reference, sessionID: sessionID)
             return TranscriptMediaLoadedResource(data: data, mimeType: nil)
         case let .remoteURL(url):
-            let response: (Data, HTTPURLResponse)
-            if reference.isPDFCandidate
-                || reference.isMarkdownCandidate
-                || reference.isExtensionlessRemoteMediaCandidate {
-                let maximumBytes = reference.isExtensionlessRemoteMediaCandidate
-                    ? DocumentPreviewLimits.maximumExtensionlessRemoteMediaBytes
-                    : DocumentPreviewLimits.maximumBytes
-                response = try await apiClient.remoteTranscriptMediaPreviewResource(
-                    from: url,
-                    maximumBytes: maximumBytes
-                )
-            } else {
-                response = try await apiClient.remoteTranscriptMediaResource(from: url)
-            }
+            let response = try await apiClient.remoteTranscriptMediaPreviewResource(
+                from: url,
+                maximumBytes: DocumentPreviewLimits.maximumExtensionlessRemoteMediaBytes,
+                documentMaximumBytes: DocumentPreviewLimits.maximumBytes,
+                nameOrPath: reference.rawReference
+            )
             return TranscriptMediaLoadedResource(
                 data: response.0,
                 mimeType: response.1.value(forHTTPHeaderField: "Content-Type")
