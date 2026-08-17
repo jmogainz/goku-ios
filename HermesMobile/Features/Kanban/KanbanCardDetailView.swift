@@ -126,6 +126,8 @@ private struct KanbanCardDetailContent: View {
             dependenciesSection
             operationalHistorySection
         }
+        .scrollContentBackground(.hidden)
+        .background { GokuBackdrop().ignoresSafeArea() }
         .refreshable { await state.refresh() }
         .listStyle(.insetGrouped)
     }

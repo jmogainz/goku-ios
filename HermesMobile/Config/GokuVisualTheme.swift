@@ -64,6 +64,10 @@ enum GokuVisualTheme {
         colorScheme == .dark ? Color(hexRGB: "#16365E")! : Color(hexRGB: "#FFFDF9")!
     }
 
+    static func chromeSurfaceOpacity(reduceTransparency: Bool) -> Double {
+        reduceTransparency ? 1 : 0.88
+    }
+
     static func navigationBarOpacity(
         for colorScheme: ColorScheme,
         reduceTransparency: Bool

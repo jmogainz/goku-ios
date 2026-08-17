@@ -300,7 +300,7 @@ struct SessionListView: View {
 
     private var sessionListSurface: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color(.systemBackground)
+            GokuBackdrop()
                 .ignoresSafeArea()
 
             content

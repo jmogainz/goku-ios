@@ -238,6 +238,8 @@ private struct MemoryEditSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Edit \(section.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
