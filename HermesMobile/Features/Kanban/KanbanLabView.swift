@@ -1073,6 +1073,7 @@ struct KanbanStatusFocusView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
         .listStyle(.plain)
         .refreshable { await model.refresh() }
     }
@@ -1432,6 +1433,8 @@ private struct KanbanBoardManagementView: View {
                 Text("Browsing a Board stays local to Goku. Making a Board active changes shared server state.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle("Manage")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1758,6 +1761,8 @@ private struct KanbanBoardEditorView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle(isEditing ? "Edit" : "Create")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1872,6 +1877,8 @@ private struct KanbanBulkActionsView: View {
                     .frame(minHeight: 44)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Bulk Actions")
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(model.bulkActionPhase != nil)
@@ -1952,6 +1959,8 @@ private struct KanbanFiltersView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Card Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -988,7 +988,7 @@ extension View {
     func sessionsScreenListRow(insets: EdgeInsets = EdgeInsets()) -> some View {
         listRowInsets(insets)
             .listRowSeparator(.hidden)
-            .listRowBackground(Color(.systemBackground))
+            .listRowBackground(Color.clear)
     }
 
     func sessionsTopChromeListRow() -> some View {

@@ -71,6 +71,11 @@ final class AppThemeTests: XCTestCase {
         }
     }
 
+    func testGokuVisualThemeChromeSurfacesBecomeOpaqueWithReduceTransparency() {
+        XCTAssertEqual(GokuVisualTheme.chromeSurfaceOpacity(reduceTransparency: true), 1)
+        XCTAssertLessThan(GokuVisualTheme.chromeSurfaceOpacity(reduceTransparency: false), 1)
+    }
+
     func testGokuVisualThemeUsesReadablePrimaryActionForeground() {
         XCTAssertEqual(GokuVisualTheme.primaryActionForegroundHex, GokuVisualTheme.deepNavyHex)
         XCTAssertGreaterThan(

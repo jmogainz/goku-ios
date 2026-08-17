@@ -4,6 +4,7 @@ struct FileBrowserView: View {
     let onAPIError: (Error) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private let session: SessionSummary
     private let server: URL
@@ -81,6 +82,7 @@ struct FileBrowserView: View {
                     FileBrowserRow(entry: entry, showsDisclosure: false)
                 }
             }
+            .scrollContentBackground(.hidden)
             .refreshable {
                 await reloadCurrentPath()
             }
@@ -183,7 +185,10 @@ struct FileBrowserView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(GokuVisualTheme.panel(for: colorScheme).opacity(0.88))
+        .background(
+            GokuVisualTheme.panel(for: colorScheme)
+                .opacity(GokuVisualTheme.chromeSurfaceOpacity(reduceTransparency: reduceTransparency))
+        )
     }
 
     private var searchBar: some View {
@@ -211,10 +216,18 @@ struct FileBrowserView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 40)
-        .background(Color(.tertiarySystemFill).opacity(0.5), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(
+            reduceTransparency
+                ? GokuVisualTheme.raisedPanel(for: colorScheme)
+                : Color(.tertiarySystemFill).opacity(0.5),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
         .padding(.horizontal)
         .padding(.bottom, 10)
-        .background(GokuVisualTheme.panel(for: colorScheme).opacity(0.88))
+        .background(
+            GokuVisualTheme.panel(for: colorScheme)
+                .opacity(GokuVisualTheme.chromeSurfaceOpacity(reduceTransparency: reduceTransparency))
+        )
         .overlay(alignment: .bottom) {
             Divider()
         }

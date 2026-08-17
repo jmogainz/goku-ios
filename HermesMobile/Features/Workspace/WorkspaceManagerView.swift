@@ -269,6 +269,8 @@ private struct WorkspaceAddSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Add Workspace")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
