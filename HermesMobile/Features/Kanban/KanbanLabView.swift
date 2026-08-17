@@ -2268,6 +2268,7 @@ struct KanbanView: View {
 
     var body: some View {
         KanbanStatusFocusView(model: model)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .task {
                 await model.load()
             }

@@ -14,6 +14,60 @@ final class AppThemeTests: XCTestCase {
         XCTAssertEqual(AppTheme.dark.colorScheme, .dark)
     }
 
+    func testGokuVisualThemeUsesCanonicalPalette() {
+        XCTAssertEqual(GokuVisualTheme.giOrangeHex, "#F47A21")
+        XCTAssertEqual(GokuVisualTheme.royalBlueHex, "#2166F3")
+        XCTAssertEqual(GokuVisualTheme.energyGoldHex, "#FFD54A")
+        XCTAssertEqual(GokuVisualTheme.deepNavyHex, "#071426")
+        XCTAssertEqual(GokuVisualTheme.skyBlueHex, "#73D5FF")
+        XCTAssertEqual(GokuVisualTheme.brandAction, GokuVisualTheme.giOrange)
+        XCTAssertEqual(GokuVisualTheme.energy, GokuVisualTheme.energyGold)
+    }
+
+    func testGokuVisualThemeActionAdaptsForDarkModeContrast() {
+        XCTAssertEqual(GokuVisualTheme.actionHex(for: .light), GokuVisualTheme.royalBlueHex)
+        XCTAssertEqual(GokuVisualTheme.actionHex(for: .dark), GokuVisualTheme.skyBlueHex)
+
+        for scheme in [ColorScheme.light, .dark] {
+            XCTAssertGreaterThanOrEqual(
+                GokuVisualTheme.contrastRatio(
+                    foregroundHex: GokuVisualTheme.actionHex(for: scheme),
+                    backgroundHex: GokuVisualTheme.panelHex(for: scheme)
+                ),
+                4.5
+            )
+        }
+    }
+
+    func testGokuVisualThemeUsesReadablePrimaryActionForeground() {
+        XCTAssertEqual(GokuVisualTheme.primaryActionForegroundHex, GokuVisualTheme.deepNavyHex)
+        XCTAssertGreaterThan(
+            GokuVisualTheme.contrastRatio(
+                foregroundHex: GokuVisualTheme.primaryActionForegroundHex,
+                backgroundHex: GokuVisualTheme.energyGoldHex
+            ),
+            4.5
+        )
+    }
+
+    func testGokuVisualThemeCanvasAdaptsToColorScheme() {
+        XCTAssertEqual(GokuVisualTheme.canvasHex(for: .light), "#FFF8EE")
+        XCTAssertEqual(GokuVisualTheme.canvasHex(for: .dark), "#071426")
+        XCTAssertNotEqual(GokuVisualTheme.panelHex(for: .light), GokuVisualTheme.panelHex(for: .dark))
+    }
+
+    func testAdaptiveBrandAccentMeetsTextContrastInBothAppearances() {
+        for scheme in [ColorScheme.light, .dark] {
+            XCTAssertGreaterThanOrEqual(
+                GokuVisualTheme.contrastRatio(
+                    foregroundHex: GokuVisualTheme.brandAccentHex(for: scheme),
+                    backgroundHex: GokuVisualTheme.canvasHex(for: scheme)
+                ),
+                4.5
+            )
+        }
+    }
+
     func testHeaderLogoColorNormalizesStoredHexValues() {
         XCTAssertEqual(HeaderLogoColor.normalizedHex("#5b7cff"), "#5B7CFF")
         XCTAssertEqual(HeaderLogoColor.normalizedHex(" ff3b30 "), "#FF3B30")

@@ -164,7 +164,7 @@ struct ChatTranscriptView: View {
                     }
                 }
                 .animation(ChatMotion.quickState(reduceMotion: reduceMotion), value: showsScrollToBottomButton)
-                .background(Color(.systemBackground))
+                .background(Color.clear)
                 .onChange(of: messages.count) {
                     guard shouldFollowLatestMessage else { return }
 

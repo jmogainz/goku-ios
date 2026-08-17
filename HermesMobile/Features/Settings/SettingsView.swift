@@ -577,7 +577,7 @@ struct SettingsView: View {
             .padding(.bottom, 36)
             .adaptiveReadableContent(maxWidth: AdaptiveReadableContentWidth.secondaryDestination)
         }
-        .background(Color(.systemBackground))
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle("Settings")
         .task {
             await loadServerSettings()
@@ -1489,8 +1489,7 @@ private struct HeaderLogoColorPresetButton: View {
 }
 
 private struct SettingsCard<Content: View>: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var contentSpacing: CGFloat = 12
 
     let title: String
@@ -1502,13 +1501,11 @@ private struct SettingsCard<Content: View>: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .textCase(.uppercase)
                 .font(AppFont.caption(weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme))
                 .padding(.horizontal, 4)
                 .padding(.bottom, 8)
 
@@ -1518,28 +1515,8 @@ private struct SettingsCard<Content: View>: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                shape.fill(Color(.secondarySystemBackground).opacity(cardFillOpacity))
-            }
-            .adaptiveGlass(
-                .regular,
-                fallbackMaterial: .regularMaterial,
-                in: shape
-            )
-            .overlay {
-                shape
-                    .stroke(Color.primary.opacity(cardStrokeOpacity), lineWidth: 0.7)
-                    .allowsHitTesting(false)
-            }
+            .gokuPanel(cornerRadius: 18)
         }
-    }
-
-    private var cardFillOpacity: Double {
-        reduceTransparency ? 1 : 0.34
-    }
-
-    private var cardStrokeOpacity: Double {
-        colorSchemeContrast == .increased ? 0.16 : 0.06
     }
 }
 
@@ -2132,7 +2109,7 @@ private struct ServerDetailView: View {
             .padding(.top, 18)
             .padding(.bottom, 36)
         }
-        .background(Color(.systemBackground))
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle(displayName.isEmpty ? hostFallback : displayName)
         .navigationBarTitleDisplayMode(.inline)
         // Persist identity edits to this server's registry entry. When it's the
@@ -2284,7 +2261,7 @@ struct AddServerView: View {
                 .padding(.top, 18)
                 .padding(.bottom, 36)
             }
-            .background(Color(.systemBackground))
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Add Server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -127,6 +127,7 @@ struct ChatAttachmentPreviewView: View {
             }
             .navigationTitle(item.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .background { GokuBackdrop().ignoresSafeArea() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
@@ -174,7 +175,7 @@ struct ChatAttachmentPreviewView: View {
             }
             .padding()
         }
-        .background(Color(.systemBackground))
+        .background(Color.clear)
     }
 
     private func textContent(_ file: FileResponse) -> some View {
@@ -189,7 +190,7 @@ struct ChatAttachmentPreviewView: View {
             }
             .padding()
         }
-        .background(Color(.systemBackground))
+        .background(Color.clear)
     }
 
     private func markdownContent(_ file: FileResponse) -> some View {
@@ -202,7 +203,7 @@ struct ChatAttachmentPreviewView: View {
             }
             .padding()
         }
-        .background(Color(.systemBackground))
+        .background(Color.clear)
     }
 
     private func pdfContent(_ document: PDFPreviewDocument) -> some View {
@@ -226,7 +227,7 @@ struct ChatAttachmentPreviewView: View {
                 }
                 .padding()
             }
-            .background(Color(.systemBackground))
+            .background(Color.clear)
         } else {
             unavailableContent(String(localized: "Could not preview this image."))
         }

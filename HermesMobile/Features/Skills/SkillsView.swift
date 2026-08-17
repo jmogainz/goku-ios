@@ -16,6 +16,7 @@ struct SkillsView: View {
 
     var body: some View {
         content
+            .background { GokuBackdrop().ignoresSafeArea() }
             .adaptiveReadableScrollContent(maxWidth: AdaptiveReadableContentWidth.secondaryDestination)
             .navigationTitle("Skills")
             .toolbar {
@@ -92,7 +93,7 @@ struct SkillsView: View {
             .refreshable {
                 await loadSkills()
             }
-            .background(Color(.systemBackground))
+            .background(Color.clear)
         }
     }
 
@@ -287,6 +288,7 @@ struct SkillDetailView: View {
 
     var body: some View {
         content
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle(skill.name ?? String(localized: "Skill"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -463,6 +465,7 @@ struct SkillLinkedFileView: View {
                 }
             }
         }
+        .background { GokuBackdrop().ignoresSafeArea() }
         .navigationTitle(fileName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

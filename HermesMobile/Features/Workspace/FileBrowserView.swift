@@ -3,6 +3,8 @@ import SwiftUI
 struct FileBrowserView: View {
     let onAPIError: (Error) -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private let session: SessionSummary
     private let server: URL
     @State private var viewModel: FileBrowserViewModel
@@ -23,6 +25,7 @@ struct FileBrowserView: View {
             content
                 .adaptiveReadableScrollContent(maxWidth: AdaptiveReadableContentWidth.workspace)
         }
+            .background { GokuBackdrop().ignoresSafeArea() }
             .navigationTitle("Files")
             .navigationBarTitleDisplayMode(.inline)
             .task {
@@ -180,7 +183,7 @@ struct FileBrowserView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(Color(.systemBackground))
+        .background(GokuVisualTheme.panel(for: colorScheme).opacity(0.88))
     }
 
     private var searchBar: some View {
@@ -211,7 +214,7 @@ struct FileBrowserView: View {
         .background(Color(.tertiarySystemFill).opacity(0.5), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal)
         .padding(.bottom, 10)
-        .background(Color(.systemBackground))
+        .background(GokuVisualTheme.panel(for: colorScheme).opacity(0.88))
         .overlay(alignment: .bottom) {
             Divider()
         }
