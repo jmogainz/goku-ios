@@ -153,7 +153,7 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
         XCTAssertEqual(recorder.requestCount, 1)
     }
 
-    func testLoadLocalPDFUsesMediaEndpointAndExposesPDFData() async throws {
+    func testLoadLocalPDFUsesMediaEndpointAndExposesPreparedPDFDocument() async throws {
         let recorder = TranscriptMediaPreviewRequestRecorder()
         let pdfData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
             context.beginPage()
@@ -173,7 +173,7 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
 
         await viewModel.load()
 
-        XCTAssertEqual(viewModel.pdfData, pdfData)
+        XCTAssertEqual(viewModel.pdfDocument?.document.pageCount, 1)
         XCTAssertNil(viewModel.markdownText)
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertTrue(viewModel.canExportMedia)
@@ -197,7 +197,7 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
 
         await viewModel.load()
 
-        XCTAssertNil(viewModel.pdfData)
+        XCTAssertNil(viewModel.pdfDocument)
         XCTAssertEqual(viewModel.markdownText, markdown)
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertTrue(viewModel.canExportMedia)
@@ -324,6 +324,59 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorMessage)
         XCTAssertNotNil(viewModel.lastError)
         XCTAssertEqual(recorder.requestCount, 0)
+    }
+
+    func testExtensionlessRemotePDFUsesResponseMIME() async throws {
+        let pdfData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage()
+            "Remote PDF".draw(at: CGPoint(x: 24, y: 24), withAttributes: nil)
+        }
+        let remoteURL = try XCTUnwrap(URL(string: "https://cdn.example.test/download?id=pdf123"))
+        let client = makeClient { request in
+            self.response(
+                statusCode: 200,
+                data: pdfData,
+                contentType: "application/pdf",
+                for: request
+            )
+        }
+        let viewModel = TranscriptMediaPreviewViewModel(
+            server: Self.baseURL,
+            sessionID: "session-123",
+            reference: .init(rawReference: remoteURL.absoluteString),
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.pdfDocument?.document.pageCount, 1)
+        XCTAssertNil(viewModel.videoFileURL)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testExtensionlessRemoteMarkdownUsesResponseMIME() async throws {
+        let markdown = "# Remote notes\n\nRendered through MIME detection."
+        let remoteURL = try XCTUnwrap(URL(string: "https://cdn.example.test/download?id=markdown123"))
+        let client = makeClient { request in
+            self.response(
+                statusCode: 200,
+                data: Data(markdown.utf8),
+                contentType: "text/markdown; charset=utf-8",
+                for: request
+            )
+        }
+        let viewModel = TranscriptMediaPreviewViewModel(
+            server: Self.baseURL,
+            sessionID: "session-123",
+            reference: .init(rawReference: remoteURL.absoluteString),
+            apiClient: client
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.markdownText, markdown)
+        XCTAssertNil(viewModel.videoFileURL)
+        XCTAssertNil(viewModel.errorMessage)
     }
 
     func testExtensionlessRemoteMediaFallsBackToVideoFileWhenImageDecodeFails() async throws {
@@ -461,6 +514,7 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
     private func response(
         statusCode: Int,
         data: Data,
+        contentType: String? = nil,
         for request: URLRequest
     ) -> (HTTPURLResponse, Data) {
         (
@@ -468,7 +522,7 @@ final class TranscriptMediaPreviewViewModelTests: XCTestCase {
                 url: request.url ?? Self.baseURL,
                 statusCode: statusCode,
                 httpVersion: nil,
-                headerFields: nil
+                headerFields: contentType.map { ["Content-Type": $0] }
             )!,
             data
         )

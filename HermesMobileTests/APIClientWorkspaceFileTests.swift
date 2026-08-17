@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import ImageIO
+import PDFKit
 import SwiftData
 import UIKit
 import UniformTypeIdentifiers
@@ -614,6 +615,35 @@ final class APIClientWorkspaceFileTests: APIClientTestCase {
         XCTAssertEqual(response, expectedData)
     }
 
+    func testRawFilePreviewRejectsPayloadAboveByteLimit() async throws {
+        let oversizedData = Data(repeating: 0x41, count: 5)
+        let client = makeClient { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/pdf",
+                    "Content-Length": String(oversizedData.count)
+                ]
+            )
+            return (try XCTUnwrap(response), oversizedData)
+        }
+
+        do {
+            _ = try await client.rawFilePreviewData(
+                sessionID: "abc123",
+                path: "report.pdf",
+                maximumBytes: 4
+            )
+            XCTFail("Expected oversized preview data to be rejected.")
+        } catch let PreviewDownloadError.responseTooLarge(maximumBytes) {
+            XCTAssertEqual(maximumBytes, 4)
+        } catch {
+            XCTFail("Expected responseTooLarge, got \(error)")
+        }
+    }
+
     func testMediaDataBuildsExpectedQueryAndReturnsBytes() async throws {
         let expectedData = Data([0x89, 0x50, 0x4E, 0x47])
         let mediaPath = "/Users/hermes/.hermes/browser_screenshots/result image.png"
@@ -739,13 +769,17 @@ final class APIClientWorkspaceFileTests: APIClientTestCase {
 
         await viewModel.load()
 
-        guard case let .pdf(data) = viewModel.preview else {
+        guard case let .pdf(previewDocument) = viewModel.preview else {
             return XCTFail("PDF files should load into the native PDF preview state.")
         }
-        XCTAssertEqual(data, pdfData)
+        XCTAssertEqual(previewDocument.document.pageCount, 1)
         XCTAssertNil(viewModel.errorMessage)
         let exportPayload = try await viewModel.exportPayload()
         XCTAssertEqual(exportPayload.data, pdfData)
+    }
+
+    func testPDFPreviewDocumentRejectsZeroPageDocuments() {
+        XCTAssertFalse(PDFPreviewDocument.isPreviewable(PDFDocument()))
     }
 
     @MainActor

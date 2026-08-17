@@ -454,7 +454,7 @@ enum ResponseCompletionNotificationPolicy {
 }
 
 struct ResponseCompletionNotificationRequest: Equatable {
-    static let title = String(localized: "Hermes response complete")
+    static let title = String(localized: "Goku response complete")
     static let body = String(localized: "The assistant finished responding.")
 
     let sessionID: String?

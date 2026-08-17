@@ -225,6 +225,14 @@ final class APIClientChatEndpointTests: APIClientTestCase {
         XCTAssertFalse(item.isKnownUnsupportedBinary)
     }
 
+    func testDocumentPreviewKindRejectsStrongMIMEConflict() {
+        XCTAssertNil(DocumentPreviewKind.infer(nameOrPath: "report.pdf", mimeType: "text/html"))
+        XCTAssertEqual(
+            DocumentPreviewKind.infer(nameOrPath: "notes.md", mimeType: "application/octet-stream"),
+            .markdown
+        )
+    }
+
     func testChatAttachmentPreviewItemRecognizesMarkdownFromMIMEWithoutExtension() {
         let item = ChatAttachmentPreviewItem(
             pending: PendingAttachment(
@@ -276,32 +284,35 @@ final class APIClientChatEndpointTests: APIClientTestCase {
 
         await viewModel.load()
 
-        guard case let .pdf(data) = viewModel.preview else {
+        guard case let .pdf(previewDocument) = viewModel.preview else {
             return XCTFail("PDF attachments should load into the native PDF preview state.")
         }
-        XCTAssertEqual(data, pdfData)
+        XCTAssertEqual(previewDocument.document.pageCount, 1)
         XCTAssertNil(viewModel.errorMessage)
     }
 
     @MainActor
-    func testChatAttachmentPreviewLoadsMarkdownFromTextEndpoint() async throws {
+    func testChatAttachmentPreviewLoadsUploadedMarkdownFromInboxCapableRawEndpoint() async throws {
+        let markdown = "# Notes\n\nRendered markdown."
         let client = makeClient { request in
-            XCTAssertEqual(request.url?.path, "/api/file")
-            return apiTestJSONResponse("""
-            {
-              "path": "/tmp/workspace/notes.md",
-              "content": "# Notes\\n\\nRendered markdown.",
-              "size": 28,
-              "lines": 3
-            }
-            """, for: request)
+            XCTAssertEqual(request.url?.path, "/api/file/raw")
+            let components = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+            let query = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value) })
+            XCTAssertEqual(query["path"], "notes.md")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/markdown; charset=utf-8"]
+            )
+            return (try XCTUnwrap(response), Data(markdown.utf8))
         }
         let item = ChatAttachmentPreviewItem(
             pending: PendingAttachment(
                 name: "notes.md",
-                path: "/tmp/workspace/notes.md",
+                path: "notes.md",
                 mime: "text/markdown",
-                size: 28,
+                size: markdown.utf8.count,
                 isImage: false,
                 thumbnailData: nil
             )

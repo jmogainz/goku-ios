@@ -136,8 +136,8 @@ struct FilePreviewView: View {
             fileContent(file.content ?? "")
         case let .markdown(file):
             fileContent(file.content ?? "")
-        case let .pdf(data):
-            pdfContent(data)
+        case let .pdf(document):
+            pdfContent(document)
         case let .image(file):
             imageContent(file.data)
         case .audio:
@@ -204,8 +204,8 @@ struct FilePreviewView: View {
         DocumentPreviewKind.infer(nameOrPath: entry.path) == .markdown
     }
 
-    private func pdfContent(_ data: Data) -> some View {
-        PDFDocumentView(data: data)
+    private func pdfContent(_ document: PDFPreviewDocument) -> some View {
+        PDFDocumentView(document: document)
             .background(Color(.systemGroupedBackground))
             .accessibilityLabel(String(localized: "PDF document \(displayName)"))
     }
@@ -336,11 +336,7 @@ struct FilePreviewView: View {
 }
 
 struct PDFDocumentView: UIViewRepresentable {
-    let data: Data
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
+    let document: PDFPreviewDocument
 
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
@@ -354,13 +350,12 @@ struct PDFDocumentView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PDFView, context: Context) {
-        guard context.coordinator.data != data else { return }
-        context.coordinator.data = data
-        view.document = PDFDocument(data: data)
+        guard view.document !== document.document else { return }
+        view.document = document.document
         view.autoScales = true
     }
 
-    final class Coordinator {
-        var data: Data?
+    static func dismantleUIView(_ view: PDFView, coordinator: ()) {
+        view.document = nil
     }
 }

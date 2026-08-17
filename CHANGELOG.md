@@ -20,7 +20,7 @@ Security sections per release.
   (Tasks, Kanban, Skills, Memory, Insights, Active Profile, Projects) and chat
   controls (Files button, Git actions). Everything stays visible by default.
 - Opt-in response speed metrics.
-- Public open-source release of the Goku codebase.
+- Public open-source release of the upstream Hermex codebase.
 
 ### Fixed
 - Interrupted backend streams now recover instead of stalling the response.

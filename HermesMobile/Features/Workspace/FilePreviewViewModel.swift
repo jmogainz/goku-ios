@@ -2,6 +2,11 @@ import Foundation
 import PDFKit
 import UniformTypeIdentifiers
 
+enum DocumentPreviewLimits {
+    static let maximumBytes = 20 * 1_024 * 1_024
+    static let maximumExtensionlessRemoteMediaBytes = 50 * 1_024 * 1_024
+}
+
 enum DocumentPreviewKind: Equatable {
     case pdf
     case markdown
@@ -23,19 +28,51 @@ enum DocumentPreviewKind: Equatable {
         }
 
         let pathExtension = URL(fileURLWithPath: nameOrPath ?? "").pathExtension.lowercased()
+        let extensionKind: DocumentPreviewKind?
         if pathExtension == "pdf" {
-            return .pdf
+            extensionKind = .pdf
+        } else if ["md", "markdown", "mdown", "mkd"].contains(pathExtension) {
+            extensionKind = .markdown
+        } else {
+            extensionKind = nil
         }
 
-        if ["md", "markdown", "mdown", "mkd"].contains(pathExtension) {
-            return .markdown
+        guard let normalizedMIME else {
+            return extensionKind
         }
 
-        return nil
+        let genericMIMETypes: Set<String> = [
+            "application/octet-stream",
+            "application/x-download",
+            "application/x-octet-stream",
+            "binary/octet-stream",
+            "text/plain"
+        ]
+        return genericMIMETypes.contains(normalizedMIME) ? extensionKind : nil
     }
 
-    static func validPDFData(_ data: Data) -> Bool {
-        PDFDocument(data: data) != nil
+}
+
+final class PDFPreviewDocument: Identifiable, @unchecked Sendable {
+    let id = UUID()
+    let document: PDFDocument
+
+    private init(document: PDFDocument) {
+        self.document = document
+    }
+
+    static func load(data: Data) async -> PDFPreviewDocument? {
+        await Task.detached(priority: .userInitiated) {
+            guard let document = PDFDocument(data: data),
+                  isPreviewable(document) else {
+                return nil
+            }
+            return PDFPreviewDocument(document: document)
+        }.value
+    }
+
+    static func isPreviewable(_ document: PDFDocument) -> Bool {
+        !document.isLocked && document.pageCount > 0
     }
 }
 
@@ -97,11 +134,17 @@ final class FilePreviewViewModel {
                     preview = .unavailable(String(localized: "Could not decode this image."))
                 }
             } else if documentKind == .pdf {
-                let data = try await apiClient.rawFileData(sessionID: sessionID, path: path)
+                let data = try await apiClient.rawFilePreviewData(
+                    sessionID: sessionID,
+                    path: path,
+                    maximumBytes: DocumentPreviewLimits.maximumBytes
+                )
                 exportData = data
-                preview = DocumentPreviewKind.validPDFData(data)
-                    ? .pdf(data)
-                    : .unavailable(String(localized: "Could not decode this PDF."))
+                if let document = await PDFPreviewDocument.load(data: data) {
+                    preview = .pdf(document)
+                } else {
+                    preview = .unavailable(String(localized: "Could not decode this PDF."))
+                }
             } else if documentKind == .markdown {
                 let file = try await apiClient.file(sessionID: sessionID, path: path)
                 exportData = Data((file.content ?? "").utf8)
@@ -197,7 +240,7 @@ final class FilePreviewViewModel {
 enum FilePreviewContent {
     case text(FileResponse)
     case markdown(FileResponse)
-    case pdf(Data)
+    case pdf(PDFPreviewDocument)
     case image(ImageFilePreview)
     case audio(Data)
     case unavailable(String)

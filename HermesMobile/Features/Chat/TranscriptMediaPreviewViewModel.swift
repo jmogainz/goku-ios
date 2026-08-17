@@ -2,6 +2,11 @@ import AVFoundation
 import Foundation
 import SwiftUI
 
+private struct TranscriptMediaLoadedResource {
+    let data: Data
+    let mimeType: String?
+}
+
 @MainActor
 @Observable
 final class TranscriptMediaPreviewViewModel {
@@ -15,7 +20,7 @@ final class TranscriptMediaPreviewViewModel {
 
     private(set) var previewData: Data?
     private(set) var audioData: Data?
-    private(set) var pdfData: Data?
+    private(set) var pdfDocument: PDFPreviewDocument?
     private(set) var markdownText: String?
     private(set) var videoFileURL: URL?
     private(set) var originalByteCount: Int?
@@ -57,7 +62,7 @@ final class TranscriptMediaPreviewViewModel {
         didLoad = true
         previewData = nil
         audioData = nil
-        pdfData = nil
+        pdfDocument = nil
         markdownText = nil
         videoFileURL = nil
         originalByteCount = nil
@@ -83,18 +88,23 @@ final class TranscriptMediaPreviewViewModel {
         }
 
         do {
-            let data = try await transcriptMediaData()
+            let resource = try await transcriptMediaResource()
+            let data = resource.data
             guard !Task.isCancelled, loadGeneration == generation else { return }
             originalData = data
             originalByteCount = data.count
 
-            if reference.isPDFCandidate {
-                if DocumentPreviewKind.validPDFData(data) {
-                    pdfData = data
+            let documentKind = DocumentPreviewKind.infer(
+                nameOrPath: reference.rawReference,
+                mimeType: resource.mimeType
+            )
+            if documentKind == .pdf {
+                if let document = await PDFPreviewDocument.load(data: data) {
+                    pdfDocument = document
                 } else {
                     errorMessage = String(localized: "Could not decode this PDF.")
                 }
-            } else if reference.isMarkdownCandidate {
+            } else if documentKind == .markdown {
                 if let text = String(data: data, encoding: .utf8) {
                     markdownText = text
                 } else {
@@ -163,14 +173,36 @@ final class TranscriptMediaPreviewViewModel {
     }
 
     private func transcriptMediaData() async throws -> Data {
+        try await transcriptMediaResource().data
+    }
+
+    private func transcriptMediaResource() async throws -> TranscriptMediaLoadedResource {
         switch reference.source {
         case .localPath:
             guard let sessionID = resolvedSessionID else {
                 throw TranscriptMediaPreviewError.missingSessionID
             }
-            return try await apiClient.transcriptMediaData(for: reference, sessionID: sessionID)
-        case .remoteURL:
-            return try await apiClient.transcriptMediaData(for: reference, sessionID: resolvedSessionID ?? "")
+            let data = try await apiClient.transcriptMediaData(for: reference, sessionID: sessionID)
+            return TranscriptMediaLoadedResource(data: data, mimeType: nil)
+        case let .remoteURL(url):
+            let response: (Data, HTTPURLResponse)
+            if reference.isPDFCandidate
+                || reference.isMarkdownCandidate
+                || reference.isExtensionlessRemoteMediaCandidate {
+                let maximumBytes = reference.isExtensionlessRemoteMediaCandidate
+                    ? DocumentPreviewLimits.maximumExtensionlessRemoteMediaBytes
+                    : DocumentPreviewLimits.maximumBytes
+                response = try await apiClient.remoteTranscriptMediaPreviewResource(
+                    from: url,
+                    maximumBytes: maximumBytes
+                )
+            } else {
+                response = try await apiClient.remoteTranscriptMediaResource(from: url)
+            }
+            return TranscriptMediaLoadedResource(
+                data: response.0,
+                mimeType: response.1.value(forHTTPHeaderField: "Content-Type")
+            )
         }
     }
 
@@ -187,7 +219,7 @@ final class TranscriptMediaPreviewViewModel {
         loadGeneration += 1
         isLoading = false
         audioData = nil
-        pdfData = nil
+        pdfDocument = nil
         markdownText = nil
         removeTemporaryVideoFile()
         videoFileURL = nil

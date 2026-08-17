@@ -8,17 +8,15 @@
 
 Your server. Your iPhone. No middleman.
 
-[![iOS 18+](https://img.shields.io/badge/iOS-18%2B-000000?logo=apple&logoColor=white)](https://apps.apple.com/app/hermex/id6767006319)
+[![iOS 18+](https://img.shields.io/badge/iOS-18%2B-000000?logo=apple&logoColor=white)](#building-from-source)
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
 [![Follow on X](https://img.shields.io/badge/Follow-%40uzairansar-000000?logo=x&logoColor=white)](https://x.com/uzairansar)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/callmeuzi)
 
-<a href="https://apps.apple.com/app/hermex/id6767006319">
-  <img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us" alt="Download on the App Store" height="50" />
-</a>
+Goku is a user-owned fork of [Hermex](https://github.com/uzairansaruzi/hermex). The upstream public website and App Store release describe Hermex, not this Goku build.
 
-[Website](https://hermexapp.com) · [App Store](https://apps.apple.com/app/hermex/id6767006319) · [Report a bug](https://github.com/uzairansaruzi/hermex/issues) · [Contributing](CONTRIBUTING.md)
+[Upstream Hermex website](https://hermexapp.com) · [Upstream Hermex App Store](https://apps.apple.com/app/hermex/id6767006319) · [Report a Goku bug](https://github.com/jmogainz/hermex/issues) · [Contributing](CONTRIBUTING.md)
 
 <img src="docs/assets/readme/hero-devices.png" alt="Goku running on two iPhones: a streaming chat session and the home screen with Tasks, Skills, Memory, Insights, and Sessions" width="720" />
 
@@ -60,7 +58,7 @@ Goku is a client only — it does not ship with, host, or provision a backend. Y
 
 1. **Run the server.** Install and start `hermes-webui` on macOS, Linux, or Windows/WSL2 (Python 3.11+). Set `HERMES_WEBUI_PASSWORD`.
 2. **Make it reachable from your phone** (see options below).
-3. **Connect.** [Download Goku](https://apps.apple.com/app/hermex/id6767006319), enter your server URL (e.g. `https://hermes.yourdomain.com`) and password, and you're in.
+3. **Connect.** Install the private Goku TestFlight build or [build Goku from source](#building-from-source), enter your server URL (e.g. `https://hermes.yourdomain.com`) and password, and you're in.
 
 Self-hosting the server, securing it, and keeping it reachable are your responsibility.
 
@@ -81,7 +79,7 @@ If connection testing fails, check these first:
 
 ## Building from source
 
-Prefer the [App Store build](https://apps.apple.com/app/hermex/id6767006319) unless you're developing. To build yourself you need Xcode 26 or newer (iOS 18 SDK) and an iPhone or simulator on iOS 18+.
+Goku is currently distributed through private TestFlight. To build it yourself, you need Xcode 26 or newer (iOS 18 SDK) and an iPhone or simulator on iOS 18+.
 
 Clone the repo, open `HermesMobile.xcodeproj`, and run the `HermesMobile` scheme on an iPhone simulator (the Xcode target is `HermesMobile`; the app's display name is `Goku`). Dependencies are resolved automatically via Swift Package Manager.
 

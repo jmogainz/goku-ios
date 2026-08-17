@@ -740,8 +740,8 @@ struct TranscriptMediaPreviewView: View {
                             Task { await loadMedia(force: true) }
                         }
                     }
-                } else if let data = viewModel.pdfData {
-                    pdfContent(data)
+                } else if let document = viewModel.pdfDocument {
+                    pdfContent(document)
                 } else if let markdown = viewModel.markdownText {
                     markdownContent(markdown)
                 } else if let data = viewModel.previewData, let image = UIImage(data: data) {
@@ -842,8 +842,8 @@ struct TranscriptMediaPreviewView: View {
         .adaptivePagePresentation()
     }
 
-    private func pdfContent(_ data: Data) -> some View {
-        PDFDocumentView(data: data)
+    private func pdfContent(_ document: PDFPreviewDocument) -> some View {
+        PDFDocumentView(document: document)
             .background(Color(.systemGroupedBackground))
             .accessibilityLabel(String(localized: "PDF document \(item.reference.displayName)"))
     }
