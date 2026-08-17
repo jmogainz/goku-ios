@@ -1167,10 +1167,12 @@ struct SidebarUtilityIcon: View {
 }
 
 struct SidebarSelectedSubrowIndicator: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         Image(systemName: "checkmark")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(GokuVisualTheme.accentForeground(for: colorScheme))
             .frame(width: 18, height: 18)
             .background(Color.accentColor, in: Circle())
             .accessibilityHidden(true)

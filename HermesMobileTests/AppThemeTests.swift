@@ -39,6 +39,38 @@ final class AppThemeTests: XCTestCase {
         }
     }
 
+    func testGokuVisualThemeUsesReadableAccentForegrounds() {
+        XCTAssertEqual(GokuVisualTheme.accentForegroundHex(for: .light), "#FFFFFF")
+        XCTAssertEqual(GokuVisualTheme.accentForegroundHex(for: .dark), GokuVisualTheme.deepNavyHex)
+
+        for scheme in [ColorScheme.light, .dark] {
+            XCTAssertGreaterThanOrEqual(
+                GokuVisualTheme.contrastRatio(
+                    foregroundHex: GokuVisualTheme.accentForegroundHex(for: scheme),
+                    backgroundHex: GokuVisualTheme.actionHex(for: scheme)
+                ),
+                4.5
+            )
+        }
+    }
+
+    func testGokuVisualThemeAccessibilitySurfaceTreatments() {
+        for scheme in [ColorScheme.light, .dark] {
+            XCTAssertGreaterThan(
+                GokuVisualTheme.panelStrokeOpacity(for: scheme, increasedContrast: true),
+                GokuVisualTheme.panelStrokeOpacity(for: scheme, increasedContrast: false)
+            )
+            XCTAssertEqual(
+                GokuVisualTheme.navigationBarOpacity(for: scheme, reduceTransparency: true),
+                1
+            )
+            XCTAssertLessThan(
+                GokuVisualTheme.navigationBarOpacity(for: scheme, reduceTransparency: false),
+                1
+            )
+        }
+    }
+
     func testGokuVisualThemeUsesReadablePrimaryActionForeground() {
         XCTAssertEqual(GokuVisualTheme.primaryActionForegroundHex, GokuVisualTheme.deepNavyHex)
         XCTAssertGreaterThan(

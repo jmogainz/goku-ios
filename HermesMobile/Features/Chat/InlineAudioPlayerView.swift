@@ -7,6 +7,8 @@ import SwiftUI
 /// loader uses — then played with `AVAudioPlayer`. Starting one player pauses
 /// any other that's currently playing (see `AudioAttachmentPlaybackCenter`).
 struct InlineAudioPlayerView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     /// Accessibility / labelling name for the clip (typically the file name).
     let title: String
     /// Lazily fetches the raw audio bytes; returns `nil` on failure.
@@ -67,7 +69,7 @@ struct InlineAudioPlayerView: View {
                     Circle().fill(Color.accentColor)
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(GokuVisualTheme.accentForeground(for: colorScheme))
                 }
                 .frame(width: 40, height: 40)
             }
