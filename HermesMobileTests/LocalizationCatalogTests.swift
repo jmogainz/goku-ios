@@ -303,4 +303,40 @@ final class LocalizationCatalogTests: XCTestCase {
             }
         }
     }
+
+    func testMicrophonePermissionDisclosesDictationAndVoiceNotes() throws {
+        let data = try Data(contentsOf: resourceURL("HermesMobile/Resources/Info.plist"))
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+        let purpose = try XCTUnwrap(plist["NSMicrophoneUsageDescription"] as? String)
+
+        XCTAssertTrue(purpose.localizedCaseInsensitiveContains("dictat"))
+        XCTAssertTrue(purpose.localizedCaseInsensitiveContains("voice note"))
+    }
+
+    func testPrivacyPolicyDisclosesVoiceNoteTranscriptionAndAudioUpload() throws {
+        let policy = try String(contentsOf: resourceURL("PRIVACY.md"), encoding: .utf8)
+
+        XCTAssertTrue(policy.localizedCaseInsensitiveContains("voice note"))
+        XCTAssertTrue(policy.localizedCaseInsensitiveContains("server for transcription"))
+        XCTAssertTrue(policy.localizedCaseInsensitiveContains("audio attachment"))
+        XCTAssertTrue(policy.localizedCaseInsensitiveContains("temporary"))
+    }
+
+    func testReviewNotesDiscloseImmediateAttachmentUploadBeforeSend() throws {
+        let notes = try String(contentsOf: resourceURL("TESTFLIGHT.md"), encoding: .utf8)
+
+        XCTAssertFalse(notes.contains("uploaded only to the configured Hermes server after the user sends the message"))
+        XCTAssertTrue(notes.localizedCaseInsensitiveContains("upload immediately"))
+        XCTAssertTrue(notes.localizedCaseInsensitiveContains("chat message is not sent until the user taps Send"))
+    }
+
+    func testReviewNotesDiscloseServerTranscribedVoiceNotes() throws {
+        let notes = try String(contentsOf: resourceURL("TESTFLIGHT.md"), encoding: .utf8)
+
+        XCTAssertFalse(notes.contains("Microphone and speech recognition are used only for explicit composer dictation."))
+        XCTAssertTrue(notes.localizedCaseInsensitiveContains("voice-note audio"))
+        XCTAssertTrue(notes.localizedCaseInsensitiveContains("configured Hermes server for transcription"))
+    }
 }

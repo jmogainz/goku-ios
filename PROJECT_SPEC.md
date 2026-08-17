@@ -646,14 +646,14 @@ Each phase ends in a working, committable state. Run on the simulator after ever
 - **Tests:** Unit-test state transitions where practical; otherwise verify haptic calls through a thin injectable helper or keep manual-only if the helper would be overengineering.
 - **Manual simulator/device test plan:** On device, send a message and confirm light feedback; let a response finish and confirm completion feedback. Verify cancelling a stream does not play the completion haptic.
 
-#### 12.4 Composer voice input
-- **User-facing goal:** The microphone button in the composer should dictate text into the draft instead of being inert.
-- **iOS UI changes:** Implement the existing mic affordance with recording/listening state, clear stop/cancel behavior, and visible error or permission guidance. Transcribed text should land in the composer draft for user review before sending.
-- **Model/networking changes:** Prefer native iOS Speech/AVFoundation APIs if feasible. Do not add third-party dependencies without explicit approval. Keep all server chat behavior unchanged; voice input only populates text.
-- **Persistence/cache impact:** Do not persist audio. Draft text follows existing composer state.
-- **Tests:** Permission/error state unit tests if the voice controller is abstracted; draft update tests for completed transcription where practical.
-- **Manual simulator/device test plan:** Verify permission prompt, dictate a short sentence, edit the transcribed draft, send it, cancel recording, and test denied-permission guidance. Full microphone verification likely needs a physical device.
-- **Risks/open questions:** Requires Info.plist usage strings and privacy manifest updates. Simulator microphone/speech behavior may not match device behavior.
+#### 12.4 Composer dictation and voice notes
+- **User-facing goal:** The composer supports explicit speech-to-text dictation and hold-to-record voice notes.
+- **iOS UI changes:** Dictation provides recording/listening state, clear stop/cancel behavior, permission guidance, and editable draft text. Voice-note recording uses an explicit hold gesture, records a temporary AAC audio file, and cancels/discards accidental or cancelled recordings.
+- **Model/networking changes:** Dictation may use native iOS Speech/AVFoundation or the configured Hermes server option. A completed voice note is sent to the configured server for transcription, uploaded as an audio attachment after successful transcription, and sent with the transcript; transcription failure aborts the message.
+- **Persistence/cache impact:** Dictation audio is not retained by Goku. Voice notes use a temporary local recording file that is deleted after read/cancel; server-side retention follows the configured Hermes server.
+- **Tests:** Cover permission/error states, dictation draft updates, voice-note duration/cancellation, transcription failure, attachment upload, and send behavior.
+- **Manual simulator/device test plan:** Verify permission prompts, dictate/edit/send a short sentence, record/send and cancel a voice note, and test denied-permission guidance. Full microphone verification requires a physical device.
+- **Risks/open questions:** Requires accurate microphone/speech usage descriptions and privacy disclosures. Simulator microphone/speech behavior may not match device behavior.
 
 #### 12.5 Response completion notifications
 - **User-facing goal:** If the user backgrounds the app while an assistant response is streaming, iOS can notify them when the response completes.

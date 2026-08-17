@@ -209,8 +209,9 @@ Owner task in App Store Connect:
    - no in-app account creation;
    - no purchases;
    - camera capture is available for explicit composer attachments;
-   - shared files/photos/PDFs and camera captures are staged locally, then uploaded only to the configured Hermes server after the user sends the message;
-   - user must explicitly send the message after import.
+   - selected/shared files, photos, PDFs, pasted items, and camera captures upload immediately to the configured Hermes server after the user selects, imports, pastes, or captures them;
+   - uploading an attachment does not send a chat message; the chat message is not sent until the user taps Send;
+   - voice-note audio is sent to the configured Hermes server for transcription, uploaded as an audio attachment after successful transcription, and sent with the resulting transcript.
 5. Enter a public privacy policy URL.
 6. Review App Privacy answers:
    - no tracking;
@@ -255,13 +256,13 @@ Suggested review path:
 3. Open Sessions and select an existing session.
 4. Send a short message and watch the streamed response.
 5. Open Files, Tasks, Skills, Memory, and Usage Analytics from the Sessions screen.
-6. Optional: use the iOS share sheet from Safari/Notes/Files/Photos to import content into a new Hermes draft. The app stages shared content locally, uploads selected attachments to the configured Hermes server, and does not send a chat message until the user taps Send.
+6. Optional: use the iOS share sheet from Safari/Notes/Files/Photos to import content into a new Hermes draft. Shared content is staged locally until the app imports it. Selected attachments upload immediately to the configured Hermes server during import, but the chat message is not sent until the user taps Send.
 
 Notes:
 - There is no in-app account creation or purchase flow.
 - The server is self-hosted and password protected.
 - Camera capture is available only when the user explicitly chooses Camera for a composer attachment.
-- Microphone and speech recognition are used only for explicit composer dictation.
+- Microphone access is used for explicit composer dictation and voice-note recording. Dictation may use Apple speech recognition or the configured server option; voice-note audio is sent to the configured Hermes server for transcription, then uploaded as an audio attachment and sent with the transcript.
 - Photo/file access is used only when the user selects attachments or shares content into the app.
 ```
 
@@ -708,13 +709,13 @@ Suggested review path:
 3. Open Sessions and select an existing session.
 4. Send a short message and watch the streamed response.
 5. Open Files, Tasks, Skills, Memory, and Usage Analytics from the Sessions screen.
-6. Optional: use the iOS share sheet from Safari/Notes/Files/Photos to import content into a new Hermes draft. The app stages shared content locally, uploads selected attachments to the configured Hermes server, and does not send a chat message until the user taps Send.
+6. Optional: use the iOS share sheet from Safari/Notes/Files/Photos to import content into a new Hermes draft. Shared content is staged locally until the app imports it. Selected attachments upload immediately to the configured Hermes server during import, but the chat message is not sent until the user taps Send.
 
 Notes:
 - There is no in-app account creation or purchase flow.
 - The server is self-hosted and password protected.
 - Camera capture is available only when the user explicitly chooses Camera for a composer attachment.
-- Microphone and speech recognition are used only for explicit composer dictation.
+- Microphone access is used for explicit composer dictation and voice-note recording. Dictation may use Apple speech recognition or the configured server option; voice-note audio is sent to the configured Hermes server for transcription, then uploaded as an audio attachment and sent with the transcript.
 - Photo/file access is used only when the user selects attachments or shares content into the app.
 ```
 
