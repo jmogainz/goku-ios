@@ -17,14 +17,14 @@ Depending on the features you choose to use, Goku may handle:
 - Chat messages, agent responses, session metadata, tasks, skills, workspace files, and other content returned by or sent to that server.
 - Files and photos that you explicitly select or share into the app.
 - Photos that you explicitly capture with the camera for attachment to a chat.
-- Microphone audio and speech-recognition results when you explicitly use dictation.
+- Microphone audio and speech-recognition results when you explicitly use dictation or record a voice note.
 - Local notification content when you enable response-completion notifications.
 
 ## How data is used and transmitted
 
-Goku uses this data only to provide the feature you requested. Chat content, attachments, camera captures, and other agent data are sent directly to the Hermes server you configured. Network operators used to reach that server, such as your VPN or Tailscale configuration, may process traffic according to their own policies.
+Goku uses this data only to provide the feature you requested. Files, photos, PDFs, camera captures, and other composer attachments are uploaded directly to the configured Hermes server immediately after you select, paste, capture, or import them. The corresponding chat message is not sent until you tap Send. Content imported through the share extension is staged locally until the containing app opens it; attachments then upload to the configured server before the chat message is sent. Network operators used to reach that server, such as your VPN or Tailscale configuration, may process traffic according to their own policies.
 
-Dictation may use on-device speech recognition, Apple speech-recognition services, or a speech-to-text service exposed by your configured Hermes server, depending on the option you select and device capabilities. Apple’s handling of data is governed by Apple’s privacy policies.
+Dictation may use on-device speech recognition, Apple speech-recognition services, or a speech-to-text service exposed by your configured Hermes server, depending on the option you select and device capabilities. When you explicitly record a voice note, Goku records audio to a temporary local file, sends the voice-note audio to your configured Hermes server for transcription, uploads it as an audio attachment after successful transcription, and sends the transcript and attachment as the message. The temporary local recording file is deleted after it is read or when recording is cancelled. Server-side audio, transcripts, messages, and attachments follow the retention policy of your configured Hermes server. Apple’s handling of dictation data is governed by Apple’s privacy policies.
 
 Goku does not sell personal information and does not use app data for advertising or tracking.
 
@@ -40,7 +40,8 @@ Goku requests a permission only when a related feature needs it:
 
 - **Camera:** capture a photo for a chat attachment.
 - **Photos:** select chat attachments or save an exported workspace image.
-- **Microphone and speech recognition:** dictate text in the composer.
+- **Microphone:** dictate text in the composer or record a voice note you explicitly start.
+- **Speech recognition:** turn explicit composer dictation into editable draft text.
 - **Notifications:** notify you when an agent response completes.
 
 You can change these permissions in iOS Settings.
