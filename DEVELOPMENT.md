@@ -257,25 +257,25 @@ Manual internal TestFlight release flow:
 
 GitHub Actions internal TestFlight flow:
 
-1. Configure a GitHub environment named `internal-testflight`. Require manual approval on that environment if available for the repository plan.
+1. Configure a GitHub environment named `internal-testflight`.
 2. Add these environment secrets:
    - `APP_STORE_CONNECT_KEY_ID`: the App Store Connect API key ID.
    - `APP_STORE_CONNECT_ISSUER_ID`: the App Store Connect issuer ID.
    - `APP_STORE_CONNECT_PRIVATE_KEY`: the full `.p8` private key contents. A one-line value with escaped `\n` separators also works.
-3. Use an App Store Connect team API key with enough access to upload builds and let `xcodebuild -allowProvisioningUpdates` manage automatic signing for Team ID `U8G25F98S2`. If provisioning fails in CI, check the API key role, Apple Developer agreements, and App Store Connect access before changing the project to manual signing.
-4. Run the `Internal TestFlight` workflow manually from the GitHub Actions tab after the workflow file exists on the default branch.
-5. Select `master` as the workflow ref, set `confirm_internal_only` to `INTERNAL`, and leave `build_number` blank so the workflow selects the next App Store Connect build number for the current marketing version.
-6. The workflow archives the Release build, uploads directly to App Store Connect, and uses `testFlightInternalTestingOnly = true` so uploaded builds cannot be promoted to external TestFlight or App Store distribution.
-7. Wait for App Store Connect processing to complete, then add the processed build to the internal TestFlight group and test on the owner's iPhone.
+3. Use an App Store Connect team API key with enough access to upload builds and let automatic signing manage Team ID `U8G25F98S2`. If provisioning fails in CI, check the API key role, Apple Developer agreements, and App Store Connect access before changing the project to manual signing.
+4. Merging to `master` automatically runs Fastlane (`bundle exec fastlane ios internal_testflight`) and uploads an internal-only TestFlight build. Markdown/docs-only pushes are skipped.
+5. To retry the same `master` commit without another merge, run the `Internal TestFlight` workflow from the Actions tab and leave `build_number` blank so Fastlane selects the next App Store Connect build number.
+6. Fastlane archives a Release IPA with `ci/TestFlightExportIPA.plist` (`testFlightInternalTestingOnly = true`) and uploads it with `upload_to_testflight`. Those builds cannot be promoted to external TestFlight or App Store distribution.
+7. Wait for App Store Connect processing. If **Goku Internal** has automatic distribution enabled, the build attaches itself; otherwise add it to the group after processing.
 
 CI upload guardrails and likely failure modes:
 
-- The workflow only runs on manual `workflow_dispatch`, fails unless the selected ref is `master`, and serializes uploads with a single concurrency group.
-- The workflow detects `MARKETING_VERSION` from Xcode build settings, queries App Store Connect for existing uploaded builds for that version, selects the next build number, and overrides `CURRENT_PROJECT_VERSION` without editing the Xcode project. If `build_number` is provided manually, the workflow still fails before archiving unless that value is greater than the latest App Store Connect build.
+- The workflow runs on `push` to `master` and optional `workflow_dispatch`, fails unless the selected ref is `master`, and serializes uploads with a single concurrency group.
+- Fastlane detects `MARKETING_VERSION` from Xcode build settings, queries App Store Connect for existing uploaded builds for that version, selects the next build number, and overrides `CURRENT_PROJECT_VERSION` without editing the Xcode project. If `build_number` is provided on a manual re-run, the selector still fails before archiving unless that value is greater than the latest App Store Connect build.
 - Missing or malformed secrets fail before archiving. The private key must remain a secret and must never be committed.
 - Automatic signing can fail if the API key lacks Developer Portal/provisioning access, the Apple Developer Program agreements are pending, or App Store Connect has not finished recognizing the app record.
 - GitHub macOS runner image or Xcode changes can break archive behavior; the workflow logs `xcodebuild -version` to make that visible.
-- Upload success only means Apple accepted delivery. Processing, TestFlight group assignment, and later external tester promotion remain manual App Store Connect steps.
+- Upload success only means Apple accepted delivery. Processing, TestFlight group assignment, and later external tester promotion remain App Store Connect steps.
 - Builds uploaded through this workflow are marked internal-only. They cannot be used for external TestFlight, Beta App Review, or App Store distribution; use the separate external-capable path described in [`TESTFLIGHT.md`](TESTFLIGHT.md) for external review builds.
 
 GitHub Actions external-capable TestFlight flow:

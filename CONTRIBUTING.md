@@ -104,9 +104,10 @@ bug here, reproduce it in the hermes-webui **web UI** against the same server:
    itself built with coding agents, so it's normal context for review — not a
    gate.
 
-`master` is the protected release-candidate branch. Releases and TestFlight
-uploads (`.github/workflows/*-testflight.yml`) are maintainer-only operations —
-contributors never need App Store Connect access.
+`master` is the protected release-candidate branch. Merging to `master`
+automatically uploads an internal-only TestFlight build via Fastlane
+(`.github/workflows/internal-testflight.yml`). That is a maintainer-only
+operation — contributors never need App Store Connect access.
 
 ## Questions
 

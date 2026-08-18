@@ -100,8 +100,8 @@ Purpose: create a safe way to upload a build that can be submitted to external T
 
 Current state:
 
-- `.github/workflows/internal-testflight.yml` uses `ci/TestFlightExportOptions.plist`.
-- `ci/TestFlightExportOptions.plist` sets `testFlightInternalTestingOnly = true`.
+- `.github/workflows/internal-testflight.yml` runs Fastlane on merge to `master` and uses `ci/TestFlightExportIPA.plist`.
+- `ci/TestFlightExportIPA.plist` and `ci/TestFlightExportOptions.plist` set `testFlightInternalTestingOnly = true`.
 - Apple marks those builds internal-only; they cannot be submitted for external testing or customers.
 
 Preferred implementation:
