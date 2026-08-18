@@ -158,9 +158,68 @@ final class OpenChatSessionStoreTests: XCTestCase {
         )
     }
 
+    func testColdOpenAdoptsListStreamIDBeforeSessionFetch() throws {
+        let viewModel = try makeViewModel(
+            sessionID: "session-abc",
+            activeStreamID: "stream-from-list"
+        )
+
+        XCTAssertEqual(viewModel.activeStreamID, "stream-from-list")
+        XCTAssertTrue(viewModel.isActiveStreamConnectionSuspended)
+        XCTAssertTrue(viewModel.hasPreservedLiveRun)
+        XCTAssertFalse(viewModel.isEstablishingConnection)
+    }
+
+    func testColdOpenWithoutKnownStreamReportsEstablishingConnection() throws {
+        let viewModel = try makeViewModel(sessionID: "session-abc")
+        viewModel.markConversationConnectionInProgress()
+
+        XCTAssertNil(viewModel.activeStreamID)
+        XCTAssertTrue(viewModel.isEstablishingConnection)
+        XCTAssertTrue(viewModel.isLoading)
+    }
+
+    func testKnownListStreamReconnectsWithoutWaitingOnSessionFetch() async throws {
+        let streamClient = SpySSEStreamingClient()
+        var sessionFetchCount = 0
+        var statusFetchCount = 0
+        let viewModel = try makeViewModel(
+            sessionID: "session-abc",
+            activeStreamID: "stream-from-list",
+            streamClient: streamClient
+        ) { request in
+            switch request.url?.path {
+            case "/api/chat/stream/status":
+                statusFetchCount += 1
+                return apiTestJSONResponse("""
+                {
+                  "active": true,
+                  "replay_available": true
+                }
+                """, for: request)
+            case "/api/session":
+                sessionFetchCount += 1
+                XCTFail("Known list stream must attach before /api/session.")
+                return apiTestJSONResponse("{}", for: request)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        await viewModel.reconnectStreamIfNeeded()
+
+        XCTAssertEqual(statusFetchCount, 1)
+        XCTAssertEqual(sessionFetchCount, 0)
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        XCTAssertEqual(viewModel.activeStreamID, "stream-from-list")
+        XCTAssertFalse(viewModel.isActiveStreamConnectionSuspended)
+    }
+
     @MainActor
     func makeViewModel(
         sessionID: String,
+        activeStreamID: String? = nil,
         streamClient: SSEStreamingClient? = nil,
         handler: ((URLRequest) throws -> (HTTPURLResponse, Data))? = nil
     ) throws -> ChatViewModel {
@@ -180,7 +239,7 @@ final class OpenChatSessionStoreTests: XCTestCase {
         let client = APIClient(baseURL: server, session: urlSession)
         let resolvedStreamClient = streamClient ?? SpySSEStreamingClient()
         let viewModel = ChatViewModel(
-            session: SessionSummary(sessionId: sessionID),
+            session: SessionSummary(sessionId: sessionID, activeStreamId: activeStreamID),
             server: server,
             client: client,
             streamClient: resolvedStreamClient,

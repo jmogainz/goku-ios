@@ -1240,7 +1240,8 @@ struct ChatView: View {
             hasActiveStream: viewModel.activeStreamID != nil,
             activeStreamRecoveryState: viewModel.activeStreamRecoveryState,
             isCancellingStream: viewModel.isCancellingStream,
-            isScrolledNearBottom: isScrolledNearBottom
+            isScrolledNearBottom: isScrolledNearBottom,
+            isEstablishingConnection: viewModel.isEstablishingConnection
         )
     }
 
@@ -1344,7 +1345,9 @@ struct ChatView: View {
            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
             hasPreservedLiveRun: viewModel.hasPreservedLiveRun || viewModel.wasReusedFromOpenSessionStore
            ) {
-            await loadMessages(appliesInitialFocus: false)
+            async let messages: Void = loadMessages(appliesInitialFocus: false, reconnectsAfterLoad: false)
+            async let stream: Void = viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+            _ = await (messages, stream)
             guard !Task.isCancelled else { return }
         } else {
             await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
@@ -1394,9 +1397,11 @@ struct ChatView: View {
         viewModel.isViewingCachedData || viewModel.activeStreamID != nil || viewModel.isSubmittingGoal
     }
 
-    private func loadMessages(appliesInitialFocus: Bool = true) async {
+    private func loadMessages(appliesInitialFocus: Bool = true, reconnectsAfterLoad: Bool = true) async {
         await viewModel.loadMessages(modelContext: modelContext)
-        await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+        if reconnectsAfterLoad {
+            await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+        }
         if appliesInitialFocus {
             applyInitialComposerFocusPolicyIfNeeded()
         }

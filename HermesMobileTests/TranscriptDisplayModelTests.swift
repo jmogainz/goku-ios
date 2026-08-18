@@ -650,6 +650,34 @@ final class ChatActiveRunStatusPolicyTests: XCTestCase {
             isScrolledNearBottom: false
         ))
     }
+
+    func testStatusShowsConnectingOnColdOpenEvenAtBottom() {
+        let presentation = ChatActiveRunStatusPolicy.presentation(
+            isStartingChat: false,
+            hasActiveStream: false,
+            activeStreamRecoveryState: .idle,
+            isCancellingStream: false,
+            isScrolledNearBottom: true,
+            isEstablishingConnection: true
+        )
+
+        XCTAssertEqual(presentation?.kind, .connecting)
+        XCTAssertEqual(presentation?.label, "Connecting…")
+        XCTAssertEqual(presentation?.accessibilityLabel, "Connecting to conversation")
+    }
+
+    func testConnectingYieldsToAnAlreadyLiveStream() {
+        let presentation = ChatActiveRunStatusPolicy.presentation(
+            isStartingChat: false,
+            hasActiveStream: true,
+            activeStreamRecoveryState: .reconnecting,
+            isCancellingStream: false,
+            isScrolledNearBottom: false,
+            isEstablishingConnection: true
+        )
+
+        XCTAssertEqual(presentation?.kind, .reconnecting)
+    }
 }
 
 final class AssistantTurnTimestampFormatterTests: XCTestCase {

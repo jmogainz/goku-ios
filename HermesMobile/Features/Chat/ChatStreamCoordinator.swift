@@ -121,6 +121,14 @@ final class ChatStreamCoordinator {
         self.timing = timing
     }
 
+    func adoptKnownLiveStreamIfNeeded(_ rawStreamID: String?) {
+        let streamID = rawStreamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard activeStreamID == nil, let streamID, !streamID.isEmpty else { return }
+        activeStreamID = streamID
+        isConnectionSuspended = true
+        recoveryState = .checking
+    }
+
     func attach(delegate: any ChatStreamCoordinatorDelegate) {
         self.delegate = delegate
     }

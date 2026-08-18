@@ -235,6 +235,10 @@ final class ChatViewModel {
     var hasPreservedLiveRun: Bool {
         activeStreamID != nil || !liveToolCalls.isEmpty || !liveReasoningText.isEmpty
     }
+
+    var isEstablishingConnection: Bool {
+        isLoading && activeStreamID == nil && !isStartingChat
+    }
     var activeStreamRecoveryState: ActiveStreamRecoveryState { streamCoordinator.recoveryState }
     var liveTokensPerSecond: Double? { streamCoordinator.liveTokensPerSecond }
     private(set) var errorMessage: String?
@@ -581,6 +585,7 @@ final class ChatViewModel {
         self.streamCoordinator.attach(delegate: self)
         self.pendingActionCoordinator.delegate = self
         self.attachmentCoordinator.delegate = self
+        streamCoordinator.adoptKnownLiveStreamIfNeeded(session.activeStreamId)
     }
 
     deinit {
@@ -613,6 +618,10 @@ final class ChatViewModel {
 
     func markReusedFromOpenSessionStore() {
         wasReusedFromOpenSessionStore = true
+    }
+
+    func markConversationConnectionInProgress() {
+        isLoading = true
     }
 
     // Test seam: deterministically await the in-flight coalesced scroll-trigger task
