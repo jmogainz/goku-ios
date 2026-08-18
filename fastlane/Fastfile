@@ -5,6 +5,10 @@ default_platform(:ios)
 platform :ios do
   desc "Archive and upload an internal-only TestFlight build"
   lane :internal_testflight do
+    # Fastlane's default cwd is ./fastlane; repo-relative paths must run from root.
+    repo_root = File.expand_path("..", __dir__)
+    Dir.chdir(repo_root)
+
     ref_name = ENV["GITHUB_REF_NAME"].to_s
     unless ref_name.empty? || ref_name == "master"
       UI.user_error!("Internal TestFlight uploads must run from master. Current ref: #{ref_name}")
