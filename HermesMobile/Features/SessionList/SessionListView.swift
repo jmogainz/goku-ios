@@ -908,10 +908,14 @@ struct SessionListView: View {
     }
 
     private var activeSessionMonitorTaskID: ActiveSessionMonitorTaskID {
-        let activeSessions = visibleSessions.filter(SessionRowView.isActiveStreaming)
+        let liveOwnerSessionIDs = OpenChatSessionStore.shared.liveSessionIDs(for: server)
+        let liveOwnerStreamIDs = OpenChatSessionStore.shared.liveStreamIDs(for: server)
+        let activeSessions = visibleSessions.filter {
+            SessionRowView.isActiveStreaming($0, liveOwnerSessionIDs: liveOwnerSessionIDs)
+        }
         return ActiveSessionMonitorTaskID(
-            streamIDs: SessionListViewModel.activeStreamIDs(in: activeSessions),
-            hasActiveRows: !activeSessions.isEmpty,
+            streamIDs: SessionListViewModel.activeStreamIDs(in: activeSessions) + liveOwnerStreamIDs,
+            hasActiveRows: !activeSessions.isEmpty || !liveOwnerStreamIDs.isEmpty,
             isViewingCachedData: viewModel.isViewingCachedData
         )
     }

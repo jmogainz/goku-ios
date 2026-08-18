@@ -230,6 +230,11 @@ final class ChatViewModel {
     private(set) var isCancellingStream = false
     private(set) var isViewingCachedData = false
     var activeStreamID: String? { streamCoordinator.activeStreamID }
+    private(set) var wasReusedFromOpenSessionStore = false
+
+    var hasPreservedLiveRun: Bool {
+        activeStreamID != nil || !liveToolCalls.isEmpty || !liveReasoningText.isEmpty
+    }
     var activeStreamRecoveryState: ActiveStreamRecoveryState { streamCoordinator.recoveryState }
     var liveTokensPerSecond: Double? { streamCoordinator.liveTokensPerSecond }
     private(set) var errorMessage: String?
@@ -502,6 +507,7 @@ final class ChatViewModel {
     private var activeBtwAnswer = ""
     private var backgroundPromptsByTaskID: [String: String] = [:]
     @ObservationIgnored private var backgroundPollTask: Task<Void, Never>?
+    @ObservationIgnored private var streamStatusWatchTask: Task<Void, Never>?
     private var isRefreshingCompletedResponseTitle = false
     private var isActiveStreamReplayConnection: Bool { streamCoordinator.isReplayConnection }
     private var activeStreamReplayMatchedPrefixLength = 0
@@ -579,6 +585,7 @@ final class ChatViewModel {
 
     deinit {
         backgroundPollTask?.cancel()
+        streamStatusWatchTask?.cancel()
         pendingStreamingScrollTriggerTask?.cancel()
         pendingStreamingContentFlushTask?.cancel()
         listenPreparationTask?.cancel()
@@ -602,6 +609,10 @@ final class ChatViewModel {
 
     nonisolated static func resetActiveStreamSnapshotsForTesting() {
         ActiveChatStreamSnapshotStore.shared.removeAll()
+    }
+
+    func markReusedFromOpenSessionStore() {
+        wasReusedFromOpenSessionStore = true
     }
 
     // Test seam: deterministically await the in-flight coalesced scroll-trigger task
@@ -3750,6 +3761,23 @@ final class ChatViewModel {
         streamCoordinator.cancelReconnectRetry()
     }
 
+    func ensureOwnedStreamStatusWatch() {
+        guard streamStatusWatchTask == nil, activeStreamID != nil else { return }
+        streamStatusWatchTask = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                guard self.activeStreamID != nil else { return }
+                await self.recoverStaleActiveStreamIfNeeded()
+            }
+        }
+    }
+
+    func cancelOwnedStreamStatusWatch() {
+        streamStatusWatchTask?.cancel()
+        streamStatusWatchTask = nil
+    }
+
     func cleanupPollingTasks() {
         stopBackgroundPolling(clearTrackedPrompts: true)
         pendingActionCoordinator.stopMonitoring(clearPrompt: true)
@@ -5023,10 +5051,15 @@ extension ChatViewModel: ChatStreamCoordinatorDelegate {
 
     func streamCoordinatorStartAuxiliaryMonitoring() {
         pendingActionCoordinator.startMonitoring()
+        OpenChatSessionStore.shared.noteStreamingStateChanged()
     }
 
     func streamCoordinatorStopAuxiliaryMonitoring(clearPrompt: Bool) {
         pendingActionCoordinator.stopMonitoring(clearPrompt: clearPrompt)
+        if activeStreamID == nil {
+            cancelOwnedStreamStatusWatch()
+        }
+        OpenChatSessionStore.shared.noteStreamingStateChanged()
     }
 
     func streamCoordinatorSaveSnapshotIfNeeded() {

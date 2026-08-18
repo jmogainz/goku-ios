@@ -19,6 +19,19 @@ final class ChatScrollPolicyTests: XCTestCase {
         XCTAssertTrue(ChatInitialAppearancePolicy.shouldBeginAsyncWork(hasCompletedAppearance: true))
     }
 
+    func testWarmLiveReopenSkipsBlockingTranscriptReload() {
+        XCTAssertFalse(
+            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedLiveRun: true)
+        )
+        XCTAssertTrue(
+            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedLiveRun: false)
+        )
+    }
+
+    func testLeavingAChatKeepsTheLiveStreamAttached() {
+        XCTAssertTrue(ChatNavigationLifecyclePolicy.shouldKeepLiveStreamOnDisappear)
+    }
+
     func testBottomThresholdLoosensWhileStreaming() {
         XCTAssertEqual(
             ChatScrollPolicy.bottomThreshold(isStreaming: false),

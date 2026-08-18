@@ -9,10 +9,11 @@ struct SessionRowView: View {
     var showsMessageCount = true
     var showsWorkspace = true
     var isViewingCachedData = false
+    var liveOwnerSessionIDs: Set<String> = []
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            if Self.isActiveStreaming(session) {
+            if Self.isActiveStreaming(session, liveOwnerSessionIDs: resolvedLiveOwnerSessionIDs) {
                 ActiveSessionStreamingIndicator()
                     .padding(.top, streamingIndicatorTopPadding)
             }
@@ -35,8 +36,17 @@ struct SessionRowView: View {
         return title
     }
 
-    static func isActiveStreaming(_ session: SessionSummary) -> Bool {
-        session.isStreaming == true || nonEmpty(session.activeStreamId) != nil
+    static func isActiveStreaming(
+        _ session: SessionSummary,
+        liveOwnerSessionIDs: Set<String> = []
+    ) -> Bool {
+        session.isStreaming == true
+            || nonEmpty(session.activeStreamId) != nil
+            || liveOwnerSessionIDs.contains(session.sessionId ?? "")
+    }
+
+    private var resolvedLiveOwnerSessionIDs: Set<String> {
+        liveOwnerSessionIDs.union(OpenChatSessionStore.shared.allLiveSessionIDs)
     }
 
     static func metadataLabel(
@@ -54,11 +64,12 @@ struct SessionRowView: View {
 
     static func accessibilityStateLabels(
         for session: SessionSummary,
-        isViewingCachedData: Bool
+        isViewingCachedData: Bool,
+        liveOwnerSessionIDs: Set<String> = []
     ) -> [String] {
         var labels: [String] = []
 
-        if isActiveStreaming(session) {
+        if isActiveStreaming(session, liveOwnerSessionIDs: liveOwnerSessionIDs) {
             labels.append(String(localized: "Streaming"))
         }
 
@@ -210,7 +221,7 @@ struct SessionRowView: View {
     private var visibleStateBadges: [SessionRowStateBadgeKind] {
         var badges: [SessionRowStateBadgeKind] = []
 
-        if Self.isActiveStreaming(session) {
+        if Self.isActiveStreaming(session, liveOwnerSessionIDs: resolvedLiveOwnerSessionIDs) {
             badges.append(.streaming)
         }
 
@@ -258,7 +269,11 @@ struct SessionRowView: View {
     private var accessibilitySummary: String {
         var parts = [displayTitle]
 
-        parts.append(contentsOf: Self.accessibilityStateLabels(for: session, isViewingCachedData: isViewingCachedData))
+        parts.append(contentsOf: Self.accessibilityStateLabels(
+            for: session,
+            isViewingCachedData: isViewingCachedData,
+            liveOwnerSessionIDs: resolvedLiveOwnerSessionIDs
+        ))
 
         if let metadataLabel {
             parts.append(metadataLabel)
