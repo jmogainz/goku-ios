@@ -198,15 +198,25 @@ enum ActiveStreamRecoveryState: Equatable {
 @MainActor
 @Observable
 final class ChatViewModel {
-    private static let messagePageLimit = 50
+    nonisolated private static let messagePageLimit = 50
+    @ObservationIgnored private var incrementalTranscriptMessageIndex: Int?
+    @ObservationIgnored private var messageLoadGeneration = 0
 
     private(set) var messages: [ChatMessage] = [] {
-        didSet { recomputeDisplayedTranscriptMessages() }
+        didSet {
+            if let index = incrementalTranscriptMessageIndex {
+                incrementalTranscriptMessageIndex = nil
+                replaceDisplayedTranscriptMessage(at: index)
+            } else {
+                recomputeDisplayedTranscriptMessages()
+            }
+        }
     }
     /// Memoized transcript mapping, recomputed once whenever `messages` or
     /// `messagesOffset` changes. Views read this single cached value instead of
     /// re-running the full classification pass on every body evaluation.
     private(set) var displayedTranscriptMessages: [TranscriptMessage] = []
+    @ObservationIgnored private var displayedTranscriptRowIndexByLoadedIndex: [Int: Int] = [:]
     private(set) var isLoading = false
     private(set) var isLoadingOlderMessages = false
     private(set) var isStartingChat = false
@@ -236,20 +246,22 @@ final class ChatViewModel {
     /// render, so the view re-pins to the bottom on this token *without* animation —
     /// otherwise the height growth produces a visible scroll jump.
     private(set) var cacheFirstReconcileScrollToken = 0
-    private var hasPrimedInitialCachedMessages = false
+    private var cacheFirstMessagePlaceholder: [ChatMessage]?
+    private var messagesBeforeCacheFirstPlaceholder: [ChatMessage] = []
+    private var messagesOffsetBeforeCacheFirstPlaceholder = 0
     @ObservationIgnored private var pendingStreamingScrollTriggerTask: Task<Void, Never>?
     @ObservationIgnored private var pendingAssistantTokenChunks: [String] = []
     @ObservationIgnored private var pendingReasoningChunks: [String] = []
     @ObservationIgnored private var pendingStreamingContentFlushTask: Task<Void, Never>?
     private(set) var completedToolCallGroups: [ToolCallGroup] = []
     private var completedToolCallGroupLookup = ToolCallGroupAnchorLookup()
-    private(set) var completedReasoningGroups: [ReasoningGroup] = []
-    var displayedReasoningGroups: [ReasoningGroup] {
-        Self.reasoningDisplayGroups(
-            messages: messages,
-            messageOffset: messagesOffset,
-            archivedGroups: completedReasoningGroups
-        )
+    private(set) var completedReasoningGroups: [ReasoningGroup] = [] {
+        didSet { recomputeDisplayedReasoningGroups() }
+    }
+    private(set) var displayedReasoningGroups: [ReasoningGroup] = []
+    private var displayedReasoningGroupLookup = ReasoningGroupAnchorLookup()
+    func displayedReasoningGroupsForAnchor(_ anchorMessageID: String?) -> [ReasoningGroup] {
+        displayedReasoningGroupLookup.groups(anchorMessageID: anchorMessageID)
     }
     func completedToolCallGroupsForAnchor(_ anchorMessageID: String?) -> [ToolCallGroup] {
         completedToolCallGroupLookup.groups(anchorMessageID: anchorMessageID)
@@ -271,12 +283,63 @@ final class ChatViewModel {
         return calls
     }
 
+    private func replaceStreamingMessage(at index: Int, with message: ChatMessage) {
+        incrementalTranscriptMessageIndex = index
+        messages[index] = message
+    }
+
+    private func replaceDisplayedTranscriptMessage(at loadedIndex: Int) {
+        guard messages.indices.contains(loadedIndex),
+              let rowIndex = displayedTranscriptRowIndexByLoadedIndex[loadedIndex],
+              displayedTranscriptMessages.indices.contains(rowIndex)
+        else {
+            recomputeDisplayedTranscriptMessages()
+            return
+        }
+
+        let message = messages[loadedIndex]
+        guard message.role != "tool", !TranscriptTurnClassifier.isToolResultOnlyMessage(message) else {
+            recomputeDisplayedTranscriptMessages()
+            return
+        }
+
+        let offset = max(0, messagesOffset)
+        displayedTranscriptMessages[rowIndex] = TranscriptMessage(
+            loadedIndex: loadedIndex,
+            renderID: "transcript:\(offset + loadedIndex)",
+            anchorID: TranscriptTurnClassifier.anchorID(
+                for: message,
+                at: loadedIndex,
+                messageOffset: messagesOffset
+            ),
+            message: message
+        )
+        // Compression-card placement is keyed by loaded index/render ID, neither of
+        // which changes while appending tokens to an existing assistant row.
+    }
+
     private func recomputeDisplayedTranscriptMessages() {
         displayedTranscriptMessages = Self.transcriptMessages(
             from: messages,
             messageOffset: messagesOffset
         )
+        displayedTranscriptRowIndexByLoadedIndex = Dictionary(
+            uniqueKeysWithValues: displayedTranscriptMessages.enumerated().map { rowIndex, message in
+                (message.loadedIndex, rowIndex)
+            }
+        )
         recomputeCompressionReferenceCard()
+        recomputeDisplayedReasoningGroups()
+    }
+
+    private func recomputeDisplayedReasoningGroups() {
+        let groups = Self.reasoningDisplayGroups(
+            messages: messages,
+            messageOffset: messagesOffset,
+            archivedGroups: completedReasoningGroups
+        )
+        displayedReasoningGroups = groups
+        displayedReasoningGroupLookup = ReasoningGroupAnchorLookup(groups: groups)
     }
     /// Synthesized "Context compaction · Reference only" card resolved from the
     /// session's `compression_anchor_*` metadata; nil when the session has no
@@ -1146,12 +1209,18 @@ final class ChatViewModel {
         await attachmentCoordinator.transcriptMediaData(for: reference)
     }
 
-    func loadMessages(modelContext: ModelContext? = nil) async {
+    func loadMessages(
+        modelContext: ModelContext? = nil,
+        allowApplyDuringLocalStart: Bool = false
+    ) async {
         guard let sessionID else {
             errorMessage = String(localized: "The server did not provide a session ID.")
             return
         }
 
+        messageLoadGeneration &+= 1
+        let generation = messageLoadGeneration
+        let streamIDAtLoadStart = activeStreamID
         resetPendingStreamingContentBuffers()
         latestServerLoadHadAssistantResponseAfterLatestUser = false
         let streamLoadPreparation = streamCoordinator.prepareForSessionLoad()
@@ -1159,28 +1228,31 @@ final class ChatViewModel {
         errorMessage = nil
         cacheErrorMessage = nil
         lastError = nil
-        defer { isLoading = false }
+        defer {
+            if messageLoadGeneration == generation {
+                isLoading = false
+            }
+        }
 
-        // Cache-first render (#289): capture the pre-reload window *before* painting
-        // any cached transcript, so the network reconcile below replaces it cleanly
-        // (no merge, no duplication). Then, on a cold open with a populated cache,
-        // render the cached messages immediately so the loading skeleton never shows.
-        let previousMessages = messages
-        let previousMessagesOffset = messagesOffset
-        let usesPrimedInitialCache = hasPrimedInitialCachedMessages && !previousMessages.isEmpty
-        hasPrimedInitialCachedMessages = false
-        let cacheFirstPlaceholder: [ChatMessage]
-        if previousMessages.isEmpty, let modelContext {
-            cacheFirstPlaceholder = renderCachedMessagesBeforeReload(
+        // Cache-first render (#289): reconcile successful server data against the
+        // transcript that existed *before* an optimistic cache placeholder. A
+        // prepared placeholder may overlap a shifted server page; treating it as
+        // real history would retain stale prefix rows and reset pagination to zero.
+        let isUsingPreparedCachePlaceholder = cacheFirstMessagePlaceholder != nil
+            && messages == cacheFirstMessagePlaceholder
+        let previousMessages = isUsingPreparedCachePlaceholder
+            ? messagesBeforeCacheFirstPlaceholder
+            : messages
+        let previousMessagesOffset = isUsingPreparedCachePlaceholder
+            ? messagesOffsetBeforeCacheFirstPlaceholder
+            : messagesOffset
+        if messages.isEmpty, let modelContext {
+            _ = renderCachedMessagesBeforeReload(
                 sessionID: sessionID,
                 modelContext: modelContext
             )
-        } else if usesPrimedInitialCache {
-            cacheFirstPlaceholder = previousMessages
-        } else {
-            cacheFirstPlaceholder = []
         }
-        let renderedCacheFirst = !cacheFirstPlaceholder.isEmpty
+        let renderedCacheFirst = cacheFirstMessagePlaceholder != nil
 
         do {
             let response = try await client.session(
@@ -1191,6 +1263,9 @@ final class ChatViewModel {
                 // tool-heavy session opens populated. "Load earlier" keeps the raw cap.
                 expandRenderable: true
             )
+            guard messageLoadGeneration == generation else { return }
+            guard allowApplyDuringLocalStart || (!isStartingChat && !isEditingMessage && !isRegeneratingMessage) else { return }
+            guard streamIDAtLoadStart != nil || activeStreamID == nil else { return }
             let session = response.session
             let loadedMessages = session?.messages ?? []
             let loadedActiveStreamID = session?.activeStreamId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1226,6 +1301,7 @@ final class ChatViewModel {
                 // render; signal the view to re-pin to the bottom without a visible jump.
                 cacheFirstReconcileScrollToken += 1
             }
+            clearCacheFirstMessagePlaceholder()
             latestServerLoadHadAssistantResponseAfterLatestUser = Self.hasAssistantResponseAfterLatestUser(
                 in: messages
             )
@@ -1241,7 +1317,7 @@ final class ChatViewModel {
             )
             if let modelContext {
                 do {
-                    try CacheStore.cacheMessages(messages, serverURL: server, sessionID: sessionID, in: modelContext)
+                    try CacheStore.cacheMessages(Self.cacheMessageWindow(from: messages), serverURL: server, sessionID: sessionID, in: modelContext)
                 } catch {
                     cacheErrorMessage = error.localizedDescription
                 }
@@ -1267,6 +1343,9 @@ final class ChatViewModel {
                 usedCacheFallback: false
             )
         } catch {
+            guard messageLoadGeneration == generation else { return }
+            guard allowApplyDuringLocalStart || (!isStartingChat && !isEditingMessage && !isRegeneratingMessage) else { return }
+            guard streamIDAtLoadStart != nil || activeStreamID == nil else { return }
             lastError = error
             latestServerLoadHadAssistantResponseAfterLatestUser = false
             if CacheFallbackPolicy.shouldUseCache(for: error), let modelContext {
@@ -1298,42 +1377,25 @@ final class ChatViewModel {
                         reasoningAnchorMessageID = nil
                         streamingAssistantMessageID = nil
                         attachmentCoordinator.removeAllLocalPreviews()
+                        clearCacheFirstMessagePlaceholder()
                         streamCoordinator.reconcileSessionLoad(
                             loadedActiveStreamID: nil,
                             preparation: streamLoadPreparation,
                             usedCacheFallback: true
                         )
                     } else {
-                        if renderedCacheFirst {
-                            revertCacheFirstPlaceholder(
-                                cacheFirstPlaceholder,
-                                to: previousMessages,
-                                previousMessagesOffset: previousMessagesOffset
-                            )
-                        }
+                        revertCacheFirstPlaceholderIfNeeded()
                         isViewingCachedData = false
                         errorMessage = error.localizedDescription
                     }
                 } catch {
-                    if renderedCacheFirst {
-                        revertCacheFirstPlaceholder(
-                            cacheFirstPlaceholder,
-                            to: previousMessages,
-                            previousMessagesOffset: previousMessagesOffset
-                        )
-                    }
+                    revertCacheFirstPlaceholderIfNeeded()
                     cacheErrorMessage = error.localizedDescription
                     isViewingCachedData = false
                     errorMessage = lastError?.localizedDescription
                 }
             } else {
-                if renderedCacheFirst {
-                    revertCacheFirstPlaceholder(
-                        cacheFirstPlaceholder,
-                        to: previousMessages,
-                        previousMessagesOffset: previousMessagesOffset
-                    )
-                }
+                revertCacheFirstPlaceholderIfNeeded()
                 isViewingCachedData = false
                 errorMessage = error.localizedDescription
             }
@@ -1350,11 +1412,10 @@ final class ChatViewModel {
         isLoading = true
         guard messages.isEmpty else { return }
 
-        let cachedMessages = renderCachedMessagesBeforeReload(
+        _ = renderCachedMessagesBeforeReload(
             sessionID: sessionID,
             modelContext: modelContext
         )
-        hasPrimedInitialCachedMessages = !cachedMessages.isEmpty
     }
 
     /// Cache-first render (#289): on a cold session open, paint the cached transcript
@@ -1385,28 +1446,38 @@ final class ChatViewModel {
 
         guard !cachedMessages.isEmpty else { return [] }
 
+        if cacheFirstMessagePlaceholder == nil {
+            messagesBeforeCacheFirstPlaceholder = messages
+            messagesOffsetBeforeCacheFirstPlaceholder = messagesOffset
+        }
         messages = cachedMessages
         messagesOffset = 0
         hasOlderMessages = false
         isViewingCachedData = false
+        cacheFirstMessagePlaceholder = cachedMessages
         return cachedMessages
     }
 
     /// Undo a cache-first placeholder (#289) when the reload fails without adopting
     /// the offline cache, so the existing error UI (empty transcript + message) shows
     /// instead of a stale cached transcript masquerading as live.
-    private func revertCacheFirstPlaceholder(
-        _ placeholder: [ChatMessage],
-        to previousMessages: [ChatMessage],
-        previousMessagesOffset: Int
-    ) {
+    private func revertCacheFirstPlaceholderIfNeeded() {
+        defer { clearCacheFirstMessagePlaceholder() }
         // Only undo the cache-first paint if nothing mutated the transcript since the
         // prime (e.g. an optimistic send during the load window) — otherwise we'd wipe
         // in-flight local content while its send/stream is still running.
-        guard messages == placeholder else { return }
-        messages = previousMessages
-        messagesOffset = previousMessagesOffset
-        hasOlderMessages = previousMessagesOffset > 0
+        guard let cacheFirstMessagePlaceholder,
+              messages == cacheFirstMessagePlaceholder
+        else { return }
+        messages = messagesBeforeCacheFirstPlaceholder
+        messagesOffset = messagesOffsetBeforeCacheFirstPlaceholder
+        hasOlderMessages = messagesOffsetBeforeCacheFirstPlaceholder > 0
+    }
+
+    private func clearCacheFirstMessagePlaceholder() {
+        cacheFirstMessagePlaceholder = nil
+        messagesBeforeCacheFirstPlaceholder = []
+        messagesOffsetBeforeCacheFirstPlaceholder = 0
     }
 
     @discardableResult
@@ -1480,7 +1551,7 @@ final class ChatViewModel {
 
             if let modelContext {
                 do {
-                    try CacheStore.cacheMessages(messages, serverURL: server, sessionID: sessionID, in: modelContext)
+                    try CacheStore.cacheMessages(Self.cacheMessageWindow(from: messages), serverURL: server, sessionID: sessionID, in: modelContext)
                 } catch {
                     cacheErrorMessage = error.localizedDescription
                 }
@@ -1949,6 +2020,17 @@ final class ChatViewModel {
         Set((message.attachments ?? []).compactMap(\.identityKey))
     }
 
+    private func prepareForNewResponse() {
+        // A response started locally supersedes any transcript refresh that began
+        // while the chat was idle. Invalidate before the start request awaits so a
+        // delayed `/api/session` response cannot replace optimistic/live rows or
+        // clear the new stream ID.
+        messageLoadGeneration &+= 1
+        isLoading = false
+        clearCacheFirstMessagePlaceholder()
+        streamCoordinator.prepareForNewResponse()
+    }
+
     func sendMessage(_ draft: String, modelContext: ModelContext? = nil) async -> Bool {
         guard !isViewingCachedData else {
             sendErrorMessage = String(localized: "Reconnect to the server to send a message.")
@@ -2095,7 +2177,7 @@ final class ChatViewModel {
         liveToolCalls = []
         reasoningAnchorMessageID = nil
         toolCallAnchorMessageID = nil
-        streamCoordinator.prepareForNewResponse()
+        prepareForNewResponse()
         responseCompletionNeedsTranscriptRefresh = false
         defer { isStartingChat = false }
 
@@ -2132,6 +2214,7 @@ final class ChatViewModel {
             }
 
             completeExplicitModelPickForChatStart(explicitModelPick)
+            messageLoadGeneration &+= 1
             streamCoordinator.start(streamID: streamID)
             return true
         } catch {
@@ -2142,7 +2225,7 @@ final class ChatViewModel {
                 // The existing run may have started outside this view model. Reconcile
                 // the server transcript first so the SSE tokens attach to the persisted
                 // assistant turn instead of creating a second bubble with only the tail.
-                await loadMessages(modelContext: modelContext)
+                await loadMessages(modelContext: modelContext, allowApplyDuringLocalStart: true)
                 _ = restoreActiveStreamSnapshotIfAvailable(streamID: streamID)
                 streamingAssistantMessageID = TranscriptTurnClassifier
                     .currentTurnAssistantAnchorIDs(in: messages, messageOffset: messagesOffset)
@@ -2272,7 +2355,7 @@ final class ChatViewModel {
         guard let modelContext else { return }
 
         do {
-            try CacheStore.cacheMessages(messages, serverURL: server, sessionID: sessionID, in: modelContext)
+            try CacheStore.cacheMessages(Self.cacheMessageWindow(from: messages), serverURL: server, sessionID: sessionID, in: modelContext)
         } catch {
             cacheErrorMessage = error.localizedDescription
         }
@@ -2972,7 +3055,7 @@ final class ChatViewModel {
             streamingAssistantMessageID = nil
             toolCallAnchorMessageID = nil
             reasoningAnchorMessageID = nil
-            streamCoordinator.prepareForNewResponse()
+            prepareForNewResponse()
             responseCompletionNeedsTranscriptRefresh = false
             attachmentCoordinator.removeAllLocalPreviews()
 
@@ -3061,7 +3144,7 @@ final class ChatViewModel {
         liveToolCalls = []
         reasoningAnchorMessageID = nil
         toolCallAnchorMessageID = nil
-        streamCoordinator.prepareForNewResponse()
+        prepareForNewResponse()
         responseCompletionNeedsTranscriptRefresh = false
         defer { isStartingChat = false }
 
@@ -3131,6 +3214,7 @@ final class ChatViewModel {
                 )
             )
 
+            messageLoadGeneration &+= 1
             streamCoordinator.start(streamID: streamID)
             return .executed(message: nil)
         } catch {
@@ -3357,7 +3441,7 @@ final class ChatViewModel {
 
                 if let modelContext {
                     do {
-                        try CacheStore.cacheMessages(messages, serverURL: server, sessionID: sessionID, in: modelContext)
+                        try CacheStore.cacheMessages(Self.cacheMessageWindow(from: messages), serverURL: server, sessionID: sessionID, in: modelContext)
                     } catch {
                         cacheErrorMessage = error.localizedDescription
                     }
@@ -3366,6 +3450,8 @@ final class ChatViewModel {
 
             // Now send the edited text through the normal chat flow
             let explicitModelPick = explicitModelPickForChatStart()
+            prepareForNewResponse()
+            responseCompletionNeedsTranscriptRefresh = false
             let chatResponse = try await client.startChat(
                 sessionID: sessionID,
                 message: editedText,
@@ -3392,8 +3478,7 @@ final class ChatViewModel {
                 )
             )
 
-            streamCoordinator.prepareForNewResponse()
-            responseCompletionNeedsTranscriptRefresh = false
+            messageLoadGeneration &+= 1
             streamCoordinator.start(streamID: streamID)
             return true
         } catch {
@@ -3460,7 +3545,7 @@ final class ChatViewModel {
 
                 if let modelContext {
                     do {
-                        try CacheStore.cacheMessages(messages, serverURL: server, sessionID: sessionID, in: modelContext)
+                        try CacheStore.cacheMessages(Self.cacheMessageWindow(from: messages), serverURL: server, sessionID: sessionID, in: modelContext)
                     } catch {
                         cacheErrorMessage = error.localizedDescription
                     }
@@ -3468,6 +3553,8 @@ final class ChatViewModel {
             }
 
             let explicitModelPick = explicitModelPickForChatStart()
+            prepareForNewResponse()
+            responseCompletionNeedsTranscriptRefresh = false
             let chatResponse = try await client.startChat(
                 sessionID: sessionID,
                 message: userText,
@@ -3484,8 +3571,7 @@ final class ChatViewModel {
             }
 
             completeExplicitModelPickForChatStart(explicitModelPick)
-            streamCoordinator.prepareForNewResponse()
-            responseCompletionNeedsTranscriptRefresh = false
+            messageLoadGeneration &+= 1
             streamCoordinator.start(streamID: streamID)
             return true
         } catch {
@@ -3660,6 +3746,10 @@ final class ChatViewModel {
         suspendActiveStreamConnection()
     }
 
+    func cancelStreamReconnectRetry() {
+        streamCoordinator.cancelReconnectRetry()
+    }
+
     func cleanupPollingTasks() {
         stopBackgroundPolling(clearTrackedPrompts: true)
         pendingActionCoordinator.stopMonitoring(clearPrompt: true)
@@ -3667,6 +3757,21 @@ final class ChatViewModel {
 
     private func suspendActiveStreamConnection() {
         streamCoordinator.suspendActiveStreamConnection()
+    }
+
+    /// Reconciles an open chat when the scene becomes active. A known suspended
+    /// run takes the fast replay path; a chat with no locally known run first
+    /// refreshes its bounded 50-message window so work started elsewhere becomes
+    /// visible, then attaches replay if that response reveals an active stream.
+    func refreshAfterSceneActivation(modelContext: ModelContext? = nil) async {
+        if activeStreamID == nil,
+           !isStartingChat,
+           !isEditingMessage,
+           !isRegeneratingMessage {
+            await loadMessages(modelContext: modelContext)
+            guard !Task.isCancelled else { return }
+        }
+        await reconnectStreamIfNeeded(modelContext: modelContext)
     }
 
     func reconnectStreamIfNeeded(modelContext: ModelContext? = nil) async {
@@ -4325,19 +4430,22 @@ final class ChatViewModel {
 
         if let index = messages.firstIndex(where: { $0.messageId == messageID }) {
             let existing = messages[index]
-            messages[index] = ChatMessage(
-                role: existing.role,
-                content: (existing.content ?? "") + appendedContent,
-                timestamp: existing.timestamp,
-                messageId: existing.messageId,
-                name: existing.name,
-                toolCallId: existing.toolCallId,
-                toolUseId: existing.toolUseId,
-                toolCalls: existing.toolCalls,
-                contentParts: existing.contentParts,
-                reasoning: existing.reasoning,
-                attachments: existing.attachments,
-                turnTps: existing.turnTps
+            replaceStreamingMessage(
+                at: index,
+                with: ChatMessage(
+                    role: existing.role,
+                    content: (existing.content ?? "") + appendedContent,
+                    timestamp: existing.timestamp,
+                    messageId: existing.messageId,
+                    name: existing.name,
+                    toolCallId: existing.toolCallId,
+                    toolUseId: existing.toolUseId,
+                    toolCalls: existing.toolCalls,
+                    contentParts: existing.contentParts,
+                    reasoning: existing.reasoning,
+                    attachments: existing.attachments,
+                    turnTps: existing.turnTps
+                )
             )
             return true
         }
@@ -5169,6 +5277,20 @@ struct ReasoningGroup: Identifiable, Equatable {
     }
 }
 
+struct ReasoningGroupAnchorLookup: Equatable {
+    private let groupsByAnchor: [String?: [ReasoningGroup]]
+
+    init(groups: [ReasoningGroup] = []) {
+        groupsByAnchor = Dictionary(grouping: groups) { group in
+            group.anchorMessageID
+        }
+    }
+
+    func groups(anchorMessageID: String?) -> [ReasoningGroup] {
+        groupsByAnchor[anchorMessageID] ?? []
+    }
+}
+
 struct TranscriptMessage: Identifiable, Equatable {
     let loadedIndex: Int
     let renderID: String
@@ -5290,6 +5412,10 @@ extension ChatViewModel {
                 text: candidate.text
             )
         }
+    }
+
+    nonisolated static func cacheMessageWindow(from messages: [ChatMessage]) -> [ChatMessage] {
+        Array(messages.suffix(messagePageLimit))
     }
 
     nonisolated static func transcriptMessages(from messages: [ChatMessage], messageOffset: Int? = nil) -> [TranscriptMessage] {

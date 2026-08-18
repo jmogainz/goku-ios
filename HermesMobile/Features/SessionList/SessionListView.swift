@@ -18,6 +18,7 @@ struct SessionListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: SessionListViewModel
     @State private var navigationState: SessionNavigationState
     @State private var sessionPendingRename: SessionSummary?
@@ -36,6 +37,7 @@ struct SessionListView: View {
     @State private var sidebarScrollPosition: String?
     @State private var didCompleteInitialLoad = false
     @State private var returnRefreshID: UUID?
+    @State private var foregroundRefreshTask: Task<Void, Never>?
     @FocusState private var searchFieldIsFocused: Bool
     @AppStorage(SessionSidebarDisclosureSettings.profilesAreExpandedKey)
     private var profilesAreExpanded = SessionSidebarDisclosureSettings.defaultProfilesAreExpanded
@@ -199,23 +201,51 @@ struct SessionListView: View {
                 AddServerView(authManager: authManager)
             }
             .task {
+                // Paint the saved sidebar before the first network await. This lets
+                // stored-chat restoration begin immediately while the live refresh
+                // reconciles in parallel.
+                viewModel.prepareInitialCachedSessions(modelContext: modelContext)
+
                 // Start the normal refresh immediately so a slow direct session
                 // request cannot leave the sidebar empty. Deep-link resolution still
-                // owns navigation precedence and is awaited before stored selection
-                // restoration.
+                // owns navigation precedence; stored selection restoration happens
+                // after it, but before the network refresh must finish.
                 await SessionListInitialLoad.run(
                     resolvePendingDeepLink: {
                         await openPendingDeepLinkedSessionIfNeeded()
                     },
                     refreshSessionsAndActiveProfile: {
                         await refreshSessionsAndActiveProfile()
+                    },
+                    restoreLastSelectedSession: { clearsMissingSelection in
+                        restoreLastSelectedSessionIfNeeded(
+                            clearsMissingSelection: clearsMissingSelection
+                        )
                     }
                 )
                 guard !Task.isCancelled else { return }
                 didCompleteInitialLoad = true
-                // Ordered after the deep link so restoreIfNeeded() sees the explicit
-                // destination and leaves the stored selection alone.
-                restoreLastSelectedSessionIfNeeded()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active else {
+                    foregroundRefreshTask?.cancel()
+                    foregroundRefreshTask = nil
+                    return
+                }
+                guard SessionListForegroundRefreshPolicy.shouldRefresh(
+                    didCompleteInitialLoad: didCompleteInitialLoad,
+                    sceneIsActive: true
+                ) else { return }
+
+                foregroundRefreshTask?.cancel()
+                foregroundRefreshTask = Task { @MainActor in
+                    await refreshSessionsAndActiveProfile()
+                    guard !Task.isCancelled, scenePhase == .active else { return }
+                }
+            }
+            .onDisappear {
+                foregroundRefreshTask?.cancel()
+                foregroundRefreshTask = nil
             }
             .task(id: remoteSearchTaskID) {
                 await viewModel.searchSessions(query: searchText, content: true, depth: 5)
@@ -492,6 +522,7 @@ struct SessionListView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: searchChromeIsExpanded ? 0 : 16) {
             GokuHeaderLogo(selectedColor: selectedHeaderLogoColor)
+                .padding(.leading, searchChromeIsExpanded ? 0 : 9)
                 .frame(width: searchChromeIsExpanded ? 0 : 160, alignment: .leading)
                 .opacity(searchChromeIsExpanded ? 0 : 1)
                 .clipped()
@@ -1229,12 +1260,19 @@ struct SessionListView: View {
         persistLastSelectedSession()
     }
 
-    private func restoreLastSelectedSessionIfNeeded() {
-        navigationState.restoreIfNeeded(
-            from: viewModel.sessions,
-            clearsMissingSelection: viewModel.sessionLoadError == nil,
-            pendingDeepLinkedSessionID: pendingDeepLinkedSessionID
-        )
+    private func restoreLastSelectedSessionIfNeeded(clearsMissingSelection: Bool) {
+        if clearsMissingSelection, viewModel.sessionLoadError == nil {
+            navigationState.reconcileAuthoritativeSelection(
+                from: viewModel.sessions,
+                pendingDeepLinkedSessionID: pendingDeepLinkedSessionID
+            )
+        } else {
+            navigationState.restoreIfNeeded(
+                from: viewModel.sessions,
+                clearsMissingSelection: false,
+                pendingDeepLinkedSessionID: pendingDeepLinkedSessionID
+            )
+        }
         persistLastSelectedSession()
     }
 
@@ -1244,15 +1282,34 @@ struct SessionListView: View {
 
 }
 
+enum SessionListForegroundRefreshPolicy {
+    static func shouldRefresh(
+        didCompleteInitialLoad: Bool,
+        sceneIsActive: Bool
+    ) -> Bool {
+        didCompleteInitialLoad && sceneIsActive
+    }
+}
+
 enum SessionListInitialLoad {
     @MainActor
     static func run(
         resolvePendingDeepLink: @escaping @MainActor () async -> Void,
-        refreshSessionsAndActiveProfile: @escaping @MainActor () async -> Void
+        refreshSessionsAndActiveProfile: @escaping @MainActor () async -> Void,
+        restoreLastSelectedSession: @escaping @MainActor (_ clearsMissingSelection: Bool) async -> Void
     ) async {
         async let initialRefresh: Void = refreshSessionsAndActiveProfile()
         await resolvePendingDeepLink()
+        guard !Task.isCancelled else { return }
+        // Cached rows are optimistic and may be empty or stale. Preserve the
+        // persisted selection until the live list becomes authoritative.
+        await restoreLastSelectedSession(false)
         await initialRefresh
+        guard !Task.isCancelled else { return }
+        // Reconcile against the authoritative list too. The first pass restores
+        // instantly from cache; this second pass restores an empty/expired cache
+        // and evicts a cache-restored session that disappeared on the server.
+        await restoreLastSelectedSession(true)
     }
 }
 
@@ -1277,34 +1334,94 @@ enum SessionListNewChatReturn {
 struct GokuHeaderLogo: View {
     let selectedColor: Color
 
-    private static let aspectRatio = 643.0 / 185.0
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    static let portraitImageName = "GokuAppIcon"
+    static let productName = "Goku"
+    static let productDescriptor = "MOBILE AGENT"
+    static let accessibilityLabelText = "Goku Mobile Agent"
+
+    private let medallionSize: CGFloat = 48
+    private let portraitSize: CGFloat = 40
 
     var body: some View {
-        ZStack {
-            Image("goku-fill-mask")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(selectedColor)
+        HStack(spacing: 10) {
+            portraitMedallion
 
-            Image("goku-shading-overlay")
-                .resizable()
-                .scaledToFit()
-                .blendMode(.multiply)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Self.productName)
+                    .font(.title3.weight(.black))
+                    .fontDesign(.rounded)
+                    .tracking(-0.35)
+                    .foregroundStyle(.primary)
 
-            Image("goku-highlight")
-                .resizable()
-                .scaledToFit()
-                .blendMode(.screen)
-
-            Image("goku-outline-shadow")
-                .resizable()
-                .scaledToFit()
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Text(Self.productDescriptor)
+                        .font(.caption2.weight(.bold))
+                        .fontDesign(.rounded)
+                        .tracking(1)
+                        .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme))
+                }
+            }
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .aspectRatio(Self.aspectRatio, contentMode: .fit)
-        .compositingGroup()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("GOKU")
+        .accessibilityLabel(Self.accessibilityLabelText)
+    }
+
+    private var portraitMedallion: some View {
+        ZStack {
+            Circle()
+                .fill(GokuVisualTheme.deepNavy)
+
+            Image(Self.portraitImageName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: portraitSize, height: portraitSize)
+                .clipShape(Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(colorScheme == .dark ? 0.18 : 0.34), lineWidth: 0.75)
+                }
+
+            Circle()
+                .trim(from: 0.04, to: 0.84)
+                .stroke(
+                    GokuVisualTheme.energyGradient,
+                    style: StrokeStyle(
+                        lineWidth: colorSchemeContrast == .increased ? 3.2 : 2.5,
+                        lineCap: .round
+                    )
+                )
+                .rotationEffect(.degrees(-32))
+
+            Circle()
+                .fill(GokuVisualTheme.energyGold)
+                .frame(width: colorSchemeContrast == .increased ? 6 : 5)
+                .overlay {
+                    Circle().stroke(GokuVisualTheme.deepNavy.opacity(0.75), lineWidth: 0.75)
+                }
+                .offset(x: 18, y: -15)
+        }
+        .frame(width: medallionSize, height: medallionSize)
+        .shadow(
+            color: reduceTransparency ? .clear : selectedColor.opacity(colorScheme == .dark ? 0.32 : 0.18),
+            radius: 9
+        )
+        .overlay {
+            Circle()
+                .stroke(
+                    GokuVisualTheme.subtleStroke(
+                        for: colorScheme,
+                        increasedContrast: colorSchemeContrast == .increased
+                    ),
+                    lineWidth: colorSchemeContrast == .increased ? 1.2 : 0.6
+                )
+        }
+        .allowsHitTesting(false)
     }
 }
 

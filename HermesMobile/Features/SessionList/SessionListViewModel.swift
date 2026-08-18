@@ -85,6 +85,9 @@ final class SessionListViewModel {
     private let client: APIClient
     private let sessionMutator: SessionMutator
     private let server: URL
+    private var loadGeneration = 0
+    private var cacheFirstSessionPlaceholder: [SessionSummary]?
+    private var sessionsBeforeCacheFirstPlaceholder: [SessionSummary] = []
 
     init(server: URL, client: APIClient? = nil) {
         self.server = server
@@ -206,21 +209,37 @@ final class SessionListViewModel {
         )
     }
 
+    /// Publishes the saved sidebar before any network await so cold-launch
+    /// navigation can restore the last selected chat immediately.
+    func prepareInitialCachedSessions(modelContext: ModelContext) {
+        _ = renderCachedSessionsBeforeReload(modelContext: modelContext)
+    }
+
     @discardableResult
     func load(modelContext: ModelContext? = nil, animation: Animation? = nil) async -> Bool {
+        loadGeneration &+= 1
+        let generation = loadGeneration
         isLoading = true
         errorMessage = nil
         cacheErrorMessage = nil
         sessionLoadError = nil
         lastError = nil
-        defer { isLoading = false }
+        defer {
+            if loadGeneration == generation {
+                isLoading = false
+            }
+        }
+
+        _ = renderCachedSessionsBeforeReload(modelContext: modelContext)
 
         do {
             let response = try await client.sessions()
+            guard loadGeneration == generation else { return false }
             let visibleSessions = (response.sessions ?? [])
                 .filter { $0.archived != true && $0.shouldAppearInSessionList }
             applySessions(visibleSessions, archivedCount: response.archivedCount, animation: animation)
             isViewingCachedData = false
+            clearCacheFirstSessionPlaceholder()
 
             if let modelContext {
                 do {
@@ -232,6 +251,7 @@ final class SessionListViewModel {
 
             return true
         } catch {
+            guard loadGeneration == generation else { return false }
             guard !isCancellationError(error) else { return false }
 
             lastError = error
@@ -244,22 +264,62 @@ final class SessionListViewModel {
                         sessions = cachedSessions
                         isViewingCachedData = true
                         errorMessage = nil
+                        clearCacheFirstSessionPlaceholder()
                     } else {
+                        revertCacheFirstSessionPlaceholderIfNeeded()
                         isViewingCachedData = false
                         errorMessage = error.localizedDescription
                     }
                 } catch {
+                    revertCacheFirstSessionPlaceholderIfNeeded()
                     cacheErrorMessage = error.localizedDescription
                     isViewingCachedData = false
                     errorMessage = lastError?.localizedDescription
                 }
             } else {
+                revertCacheFirstSessionPlaceholderIfNeeded()
                 isViewingCachedData = false
                 errorMessage = error.localizedDescription
             }
 
             return false
         }
+    }
+
+    /// Paints the last known sidebar immediately on a cold launch while the live
+    /// `/api/sessions` reconcile is in flight. This is an optimistic placeholder,
+    /// not offline mode: `isViewingCachedData` stays false unless the request fails.
+    private func renderCachedSessionsBeforeReload(modelContext: ModelContext?) -> Bool {
+        guard sessions.isEmpty, let modelContext else { return false }
+
+        do {
+            let cachedSessions = try CacheStore.cachedSessions(serverURL: server, in: modelContext)
+                .filter(\.shouldAppearInSessionList)
+            guard !cachedSessions.isEmpty else { return false }
+            sessionsBeforeCacheFirstPlaceholder = sessions
+            let placeholder = Self.sortedSessions(cachedSessions)
+            sessions = placeholder
+            cacheFirstSessionPlaceholder = placeholder
+            return true
+        } catch {
+            // Cache corruption or migration failure must never delay the live request.
+            cacheErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func revertCacheFirstSessionPlaceholderIfNeeded() {
+        defer { clearCacheFirstSessionPlaceholder() }
+        guard let cacheFirstSessionPlaceholder,
+              sessions == cacheFirstSessionPlaceholder
+        else { return }
+
+        sessions = sessionsBeforeCacheFirstPlaceholder
+    }
+
+    private func clearCacheFirstSessionPlaceholder() {
+        cacheFirstSessionPlaceholder = nil
+        sessionsBeforeCacheFirstPlaceholder = []
     }
 
     func loadActiveProfile() async {

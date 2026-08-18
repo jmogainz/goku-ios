@@ -842,6 +842,61 @@ final class CacheStoreTests: XCTestCase {
         )
     }
 
+    func testCachingOneThousandSessionsCompletesWithinInteractiveBudget() throws {
+        let context = try makeContext()
+        let serverURL = URL(string: "https://performance.example.test")!
+        let sessions = (0..<1_000).map { index in
+            SessionSummary(
+                sessionId: "session-\(index)",
+                title: "Session \(index)",
+                updatedAt: Double(index)
+            )
+        }
+
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try CacheStore.cacheSessions(sessions, serverURL: serverURL, in: context)
+        let elapsed = CFAbsoluteTimeGetCurrent() - startedAt
+
+        let descriptor = FetchDescriptor<CachedSession>()
+        XCTAssertEqual(try context.fetchCount(descriptor), 1_000)
+        XCTAssertLessThan(
+            elapsed,
+            0.5,
+            "Persisting a 1,000-session sidebar took \(elapsed)s; fresh rows must apply without a visible main-thread stall."
+        )
+    }
+
+    func testCachingFiveThousandMessagesCompletesWithinInteractiveBudget() throws {
+        let context = try makeContext()
+        let serverURL = URL(string: "https://performance.example.test")!
+        let cachedAt = Date(timeIntervalSince1970: 1_770_000_000)
+        let messages = (0..<5_000).map { index in
+            ChatMessage(
+                role: index.isMultiple(of: 2) ? "user" : "assistant",
+                content: "Performance message \(index)",
+                timestamp: 1_770_000_000 + Double(index),
+                messageId: "performance-\(index)"
+            )
+        }
+
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try CacheStore.cacheMessages(
+            messages,
+            serverURL: serverURL,
+            sessionID: "performance-session",
+            in: context,
+            cachedAt: cachedAt
+        )
+        let elapsed = CFAbsoluteTimeGetCurrent() - startedAt
+
+        XCTAssertEqual(try fetchCachedMessages(in: context).count, messages.count)
+        XCTAssertLessThan(
+            elapsed,
+            1.5,
+            "Persisting a 5,000-message transcript took \(elapsed)s; cache reconciliation must stay off the interaction-critical path."
+        )
+    }
+
     private func makeContext() throws -> ModelContext {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(

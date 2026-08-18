@@ -304,6 +304,7 @@ struct MessageBubbleView: View {
                             attachment: item.attachment,
                             localData: item.localData,
                             loadAttachmentImage: loadAttachmentImage,
+                            cacheNamespace: transcriptMediaCacheNamespace,
                             onPreviewAttachment: onPreviewAttachment,
                             size: cellSize
                         )
@@ -426,6 +427,7 @@ private struct GridAttachmentCell: View {
     let attachment: MessageAttachment
     let localData: Data?
     let loadAttachmentImage: ((String) async -> Data?)?
+    let cacheNamespace: String
     let onPreviewAttachment: ((MessageAttachment, Data?) -> Void)?
     let size: CGFloat
 
@@ -485,6 +487,7 @@ private struct GridAttachmentCell: View {
             } else if let path = resolvedPath, let loadAttachmentImage {
                 RemoteAttachmentImage(
                     path: path,
+                    cacheNamespace: cacheNamespace,
                     loadAttachmentImage: loadAttachmentImage
                 )
                 .frame(width: size, height: size)
@@ -615,6 +618,7 @@ private struct GridAttachmentCell: View {
 /// cookie. Deduplicates concurrent requests and caches in memory.
 private struct RemoteAttachmentImage: View {
     let path: String
+    let cacheNamespace: String
     let loadAttachmentImage: (String) async -> Data?
     @State private var image: UIImage?
     @State private var didAttempt = false
@@ -631,9 +635,10 @@ private struct RemoteAttachmentImage: View {
                 fallbackImage
             }
         }
-        .task(id: path) {
+        .task(id: AttachmentImageCacheKey(namespace: cacheNamespace, path: path)) {
             let loaded = await AttachmentImageCache.shared.image(
                 for: path,
+                cacheNamespace: cacheNamespace,
                 loadAttachmentImage: loadAttachmentImage
             )
             guard !Task.isCancelled else { return }
@@ -666,21 +671,35 @@ private struct RemoteAttachmentImage: View {
 
 /// In-memory image cache that delegates loading to the authenticated client.
 /// Deduplicates concurrent requests for the same path.
-private actor AttachmentImageCache {
+struct AttachmentImageCacheKey: Hashable {
+    let namespace: String
+    let path: String
+
+    var rawValue: String { "\(namespace)|\(path)" }
+}
+
+actor AttachmentImageCache {
     static let shared = AttachmentImageCache()
 
-    private var cache: [String: UIImage] = [:]
-    private var inFlight: [String: Task<UIImage?, Never>] = [:]
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 64 * 1_024 * 1_024
+        return cache
+    }()
+    private var inFlight: [AttachmentImageCacheKey: Task<UIImage?, Never>] = [:]
 
     func image(
         for path: String,
+        cacheNamespace: String,
         loadAttachmentImage: @escaping (String) async -> Data?
     ) async -> UIImage? {
-        if let cached = cache[path] {
+        let key = AttachmentImageCacheKey(namespace: cacheNamespace, path: path)
+        if let cached = cache.object(forKey: key.rawValue as NSString) {
             return cached
         }
 
-        if let task = inFlight[path] {
+        if let task = inFlight[key] {
             return await task.value
         }
 
@@ -695,14 +714,18 @@ private actor AttachmentImageCache {
             return UIImage(data: previewData)
         }
 
-        inFlight[path] = task
+        inFlight[key] = task
         let image = await task.value
-        inFlight[path] = nil
+        inFlight[key] = nil
 
         if let image {
-            cache[path] = image
+            cache.setObject(image, forKey: key.rawValue as NSString, cost: Self.memoryCost(of: image))
         }
         return image
+    }
+
+    private static func memoryCost(of image: UIImage) -> Int {
+        Int(image.size.width * image.scale * image.size.height * image.scale * 4)
     }
 }
 

@@ -3234,6 +3234,52 @@ final class ChatViewModelSendTests: XCTestCase {
     }
 
     @MainActor
+    func testPreparedCacheFirstLoadDropsStalePrefixAndPreservesShiftedServerOffset() async throws {
+        let context = try makeContext()
+        let serverURL = try XCTUnwrap(URL(string: "https://example.test"))
+        try CacheStore.cacheMessages(
+            [
+                ChatMessage(role: "assistant", content: "Stale cached prefix", timestamp: 1, messageId: "stale-prefix"),
+                ChatMessage(role: "user", content: "Cached overlap", timestamp: 2, messageId: "overlap"),
+                ChatMessage(role: "assistant", content: "Cached tail", timestamp: 3, messageId: "cached-tail")
+            ],
+            serverURL: serverURL,
+            sessionID: "session-abc",
+            in: context
+        )
+
+        let viewModel = try makeViewModel { request in
+            XCTAssertEqual(request.url?.path, "/api/session")
+            return apiTestJSONResponse("""
+            {
+              "session": {
+                "session_id": "session-abc",
+                "messages": [
+                  {"role":"user","content":"Fresh overlap","timestamp":20,"message_id":"overlap"},
+                  {"role":"assistant","content":"Fresh server tail","timestamp":21,"message_id":"server-tail"}
+                ],
+                "_messages_truncated": true,
+                "_messages_offset": 10
+              }
+            }
+            """, for: request)
+        }
+
+        viewModel.prepareInitialMessageLoad(modelContext: context)
+        XCTAssertEqual(
+            viewModel.messages.compactMap(\.content),
+            ["Stale cached prefix", "Cached overlap", "Cached tail"]
+        )
+
+        await viewModel.loadMessages(modelContext: context)
+
+        XCTAssertEqual(viewModel.messages.map(\.id), ["overlap", "server-tail"])
+        XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Fresh overlap", "Fresh server tail"])
+        XCTAssertEqual(viewModel.messagesOffset, 10)
+        XCTAssertTrue(viewModel.hasOlderMessages)
+    }
+
+    @MainActor
     func testPrepareInitialMessageLoadBoundsLargeCachedTranscriptToNewestPage() throws {
         let context = try makeContext()
         let serverURL = try XCTUnwrap(URL(string: "https://example.test"))
@@ -3627,7 +3673,259 @@ final class ChatViewModelSendTests: XCTestCase {
     }
 
     @MainActor
-    func testReconnectAfterBackgroundRefreshesTranscriptBeforeReattachingActiveStream() async throws {
+    func testNewestOverlappingTranscriptLoadWinsWhenOlderRequestFinishesLast() async throws {
+        OutOfOrderChatSessionURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderChatSessionURLProtocol.self]
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let client = APIClient(baseURL: server, session: URLSession(configuration: configuration))
+        let viewModel = ChatViewModel(
+            session: try makeSession(),
+            server: server,
+            client: client,
+            streamClient: SpySSEStreamingClient(),
+            approvalStreamClient: SpySSEStreamingClient(),
+            clarifyStreamClient: SpySSEStreamingClient(),
+            listenAudioSession: SpyListenAudioSession(),
+            listenRemoteControlCenter: SpyListenRemoteControlCenter()
+        )
+
+        let firstLoad = Task { await viewModel.loadMessages() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await viewModel.loadMessages()
+        _ = await firstLoad.value
+
+        XCTAssertEqual(viewModel.messages.map(\.messageId), ["fresh-message"])
+        XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Fresh transcript"])
+        XCTAssertEqual(OutOfOrderChatSessionURLProtocol.requestCount, 2)
+    }
+
+    @MainActor
+    func testDelayedSceneRefreshCannotClobberNewlyStartedResponse() async throws {
+        OutOfOrderChatSessionURLProtocol.reset(mode: .staleLoadThenSend)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderChatSessionURLProtocol.self]
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let client = APIClient(baseURL: server, session: URLSession(configuration: configuration))
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = ChatViewModel(
+            session: try makeSession(),
+            server: server,
+            client: client,
+            streamClient: streamClient,
+            approvalStreamClient: SpySSEStreamingClient(),
+            clarifyStreamClient: SpySSEStreamingClient(),
+            listenAudioSession: SpyListenAudioSession(),
+            listenRemoteControlCenter: SpyListenRemoteControlCenter()
+        )
+
+        let delayedRefresh = Task { @MainActor in
+            await viewModel.refreshAfterSceneActivation()
+        }
+        try await waitUntil {
+            OutOfOrderChatSessionURLProtocol.requestCount >= 1
+        }
+
+        let didStart = await viewModel.sendMessage("New local prompt")
+        XCTAssertTrue(didStart)
+        XCTAssertEqual(viewModel.activeStreamID, "stream-new")
+        streamClient.emit(.token("Live answer"), lastEventID: "stream-new:1")
+
+        await delayedRefresh.value
+
+        XCTAssertEqual(viewModel.activeStreamID, "stream-new")
+        XCTAssertEqual(viewModel.messages.first?.content, "New local prompt")
+        XCTAssertTrue(viewModel.messages.last?.content?.hasPrefix("Live") == true)
+        XCTAssertFalse(viewModel.messages.compactMap(\.content).contains("Stale transcript"))
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+    }
+
+    @MainActor
+    func testSceneActivationDuringStartChatCannotClobberNewlyStartedResponse() async throws {
+        var startChatCount = 0
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = try makeViewModel(streamClient: streamClient) { request in
+            switch request.url?.path {
+            case "/api/chat/start":
+                startChatCount += 1
+                Thread.sleep(forTimeInterval: 0.25)
+                return apiTestJSONResponse(#"{"session_id":"session-abc","stream_id":"stream-new"}"#, for: request)
+            case "/api/session":
+                Thread.sleep(forTimeInterval: 0.20)
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "title": "Planning",
+                    "messages": [
+                      {"role":"assistant","content":"Stale transcript","timestamp":1770000100,"message_id":"stale-message"}
+                    ]
+                  }
+                }
+                """, for: request)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        let sendTask = Task { @MainActor in
+            await viewModel.sendMessage("New local prompt")
+        }
+        try await waitUntil { startChatCount >= 1 }
+
+        let refreshTask = Task { @MainActor in
+            await viewModel.refreshAfterSceneActivation()
+        }
+        let didStart = await sendTask.value
+        await refreshTask.value
+
+        XCTAssertTrue(didStart)
+        XCTAssertEqual(viewModel.activeStreamID, "stream-new")
+        XCTAssertEqual(viewModel.messages.first?.content, "New local prompt")
+        XCTAssertFalse(viewModel.messages.compactMap(\.content).contains("Stale transcript"))
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+    }
+
+    @MainActor
+    func testNewestOverlappingTranscriptFailureRevertsPrimedCachePlaceholder() async throws {
+        let context = try makeContext()
+        let serverURL = try XCTUnwrap(URL(string: "https://example.test"))
+        try CacheStore.cacheMessages(
+            [ChatMessage(role: "assistant", content: "Cached answer", timestamp: 1_770_000_002, messageId: "cached-assistant")],
+            serverURL: serverURL,
+            sessionID: "session-abc",
+            in: context
+        )
+        OutOfOrderChatSessionURLProtocol.reset(mode: .bothFail)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderChatSessionURLProtocol.self]
+        let client = APIClient(baseURL: serverURL, session: URLSession(configuration: configuration))
+        let viewModel = ChatViewModel(
+            session: try makeSession(),
+            server: serverURL,
+            client: client,
+            streamClient: SpySSEStreamingClient(),
+            approvalStreamClient: SpySSEStreamingClient(),
+            clarifyStreamClient: SpySSEStreamingClient(),
+            listenAudioSession: SpyListenAudioSession(),
+            listenRemoteControlCenter: SpyListenRemoteControlCenter()
+        )
+
+        viewModel.prepareInitialMessageLoad(modelContext: context)
+        XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Cached answer"])
+
+        let firstLoad = Task { @MainActor in
+            await viewModel.loadMessages(modelContext: context)
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await viewModel.loadMessages(modelContext: context)
+        await firstLoad.value
+
+        XCTAssertTrue(viewModel.messages.isEmpty)
+        XCTAssertFalse(viewModel.isViewingCachedData)
+        XCTAssertEqual(OutOfOrderChatSessionURLProtocol.requestCount, 2)
+    }
+
+    @MainActor
+    func testCancelledForegroundReconnectCannotStartSSEAfterLeavingChat() async throws {
+        OutOfOrderChatSessionURLProtocol.reset(mode: .delayedStatusAfterSend)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderChatSessionURLProtocol.self]
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let client = APIClient(baseURL: server, session: URLSession(configuration: configuration))
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = ChatViewModel(
+            session: try makeSession(),
+            server: server,
+            client: client,
+            streamClient: streamClient,
+            approvalStreamClient: SpySSEStreamingClient(),
+            clarifyStreamClient: SpySSEStreamingClient(),
+            listenAudioSession: SpyListenAudioSession(),
+            listenRemoteControlCenter: SpyListenRemoteControlCenter()
+        )
+
+        let didStart = await viewModel.sendMessage("Start work")
+        XCTAssertTrue(didStart)
+        viewModel.suspendStreamForBackground()
+        let reconnect = Task { @MainActor in
+            await viewModel.reconnectStreamIfNeeded()
+        }
+        try await waitUntil {
+            OutOfOrderChatSessionURLProtocol.requestCount >= 2
+        }
+
+        reconnect.cancel()
+        viewModel.cancelStreamReconnectRetry()
+        viewModel.suspendStreamForNavigation()
+        await reconnect.value
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        XCTAssertTrue(viewModel.isActiveStreamConnectionSuspended)
+    }
+
+    @MainActor
+    func testSceneActivationDiscoversExternalRunAndAttachesReplay() async throws {
+        let streamClient = SpySSEStreamingClient()
+        var requestedPaths: [String] = []
+        let viewModel = try makeViewModel(streamClient: streamClient) { request in
+            let path = request.url?.path ?? "nil"
+            requestedPaths.append(path)
+            switch path {
+            case "/api/session":
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "title": "Planning",
+                    "active_stream_id": "stream-external",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": "Work externally",
+                        "timestamp": 1770000100,
+                        "message_id": "user-external"
+                      },
+                      {
+                        "role": "assistant",
+                        "content": "Latest external progress",
+                        "timestamp": 1770000101,
+                        "message_id": "assistant-external"
+                      }
+                    ]
+                  }
+                }
+                """, for: request)
+            case "/api/chat/stream/status":
+                return apiTestJSONResponse(
+                    #"{"active":true,"stream_id":"stream-external","replay_available":true}"#,
+                    for: request
+                )
+            default:
+                XCTFail("Unexpected request path: \(path)")
+                throw URLError(.badURL)
+            }
+        }
+
+        await viewModel.refreshAfterSceneActivation()
+
+        XCTAssertEqual(requestedPaths, ["/api/session", "/api/chat/stream/status"])
+        XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Work externally", "Latest external progress"])
+        XCTAssertEqual(viewModel.activeStreamID, "stream-external")
+        XCTAssertFalse(viewModel.isActiveStreamConnectionSuspended)
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        let replayQueryItems = URLComponents(
+            url: try XCTUnwrap(streamClient.startedURLs.first),
+            resolvingAgainstBaseURL: false
+        )?.queryItems ?? []
+        XCTAssertEqual(replayQueryItems.first(where: { $0.name == "replay" })?.value, "1")
+        XCTAssertEqual(replayQueryItems.first(where: { $0.name == "after_seq" })?.value, "0")
+    }
+
+    @MainActor
+    func testReconnectAfterBackgroundReplaysImmediatelyWithoutTranscriptReload() async throws {
         let streamClient = SpySSEStreamingClient()
         var didRequestStatus = false
         var didReloadMessages = false
@@ -3642,14 +3940,17 @@ final class ChatViewModelSendTests: XCTestCase {
                 """, for: request)
             case "/api/chat/stream/status":
                 didRequestStatus = true
+                Thread.sleep(forTimeInterval: 0.05)
                 return apiTestJSONResponse("""
                 {
                   "active": true,
-                  "stream_id": "stream-123"
+                  "stream_id": "stream-123",
+                  "replay_available": true
                 }
                 """, for: request)
             case "/api/session":
                 didReloadMessages = true
+                Thread.sleep(forTimeInterval: 0.25)
                 return apiTestJSONResponse("""
                 {
                   "session": {
@@ -3681,17 +3982,29 @@ final class ChatViewModelSendTests: XCTestCase {
 
         let didStart = await viewModel.sendMessage("Keep working")
         XCTAssertTrue(didStart)
-        streamClient.emit(.token("First "))
+        streamClient.emit(.token("First "), lastEventID: "stream-123:1")
         XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Keep working", "First "])
 
         viewModel.suspendStreamForBackground()
+        let reconnectStartedAt = CFAbsoluteTimeGetCurrent()
         await viewModel.reconnectStreamIfNeeded()
-        streamClient.emit(.token("last."))
+        let reconnectElapsed = CFAbsoluteTimeGetCurrent() - reconnectStartedAt
 
         XCTAssertTrue(didRequestStatus)
-        XCTAssertTrue(didReloadMessages)
+        XCTAssertFalse(didReloadMessages)
+        XCTAssertLessThan(
+            reconnectElapsed,
+            0.2,
+            "Foreground reconnect took \(reconnectElapsed)s; it should reattach replay without waiting on a full transcript download."
+        )
         XCTAssertEqual(streamClient.stopCount, 1)
         XCTAssertEqual(streamClient.startedURLs.count, 2)
+        let replayURL = try XCTUnwrap(streamClient.startedURLs.last)
+        let replayQueryItems = URLComponents(url: replayURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(replayQueryItems.first(where: { $0.name == "replay" })?.value, "1")
+        XCTAssertEqual(replayQueryItems.first(where: { $0.name == "after_seq" })?.value, "1")
+
+        streamClient.emit(.token("middle last."), lastEventID: "stream-123:2")
         XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Keep working", "First middle last."])
         XCTAssertEqual(viewModel.messages.filter { $0.role == "assistant" }.count, 1)
     }
@@ -6765,6 +7078,147 @@ final class ChatViewModelSendTests: XCTestCase {
     }
 
     @MainActor
+    func testDelayedSceneRefreshCannotRestoreHistoryDiscardedByEdit() async throws {
+        var sessionLoads = 0
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = try makeViewModel(streamClient: streamClient) { request in
+            switch request.url?.path {
+            case "/api/session":
+                sessionLoads += 1
+                if sessionLoads == 1 {
+                    return apiTestJSONResponse("""
+                    {
+                      "session": {
+                        "session_id": "session-abc",
+                        "messages": [
+                          {"role":"user","content":"Keep me","timestamp":1,"message_id":"u-1"},
+                          {"role":"assistant","content":"Keep answer","timestamp":2,"message_id":"a-2"},
+                          {"role":"user","content":"Discard me","timestamp":3,"message_id":"u-3"},
+                          {"role":"assistant","content":"Discarded answer","timestamp":4,"message_id":"a-4"}
+                        ]
+                      }
+                    }
+                    """, for: request)
+                }
+                Thread.sleep(forTimeInterval: 0.20)
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "messages": [
+                      {"role":"user","content":"Keep me","timestamp":1,"message_id":"u-1"},
+                      {"role":"assistant","content":"Keep answer","timestamp":2,"message_id":"a-2"},
+                      {"role":"user","content":"Discard me","timestamp":3,"message_id":"u-3"},
+                      {"role":"assistant","content":"Discarded answer","timestamp":4,"message_id":"a-4"}
+                    ]
+                  }
+                }
+                """, for: request)
+            case "/api/session/truncate":
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "messages": [
+                      {"role":"user","content":"Keep me","timestamp":1,"message_id":"u-1"},
+                      {"role":"assistant","content":"Keep answer","timestamp":2,"message_id":"a-2"}
+                    ]
+                  }
+                }
+                """, for: request)
+            case "/api/chat/start":
+                Thread.sleep(forTimeInterval: 0.25)
+                return apiTestJSONResponse(#"{"session_id":"session-abc","stream_id":"stream-edit"}"#, for: request)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        await viewModel.loadMessages()
+        let context = try XCTUnwrap(viewModel.actionContext(for: viewModel.messages[2], visibleIndex: 2))
+        let delayedRefresh = Task { @MainActor in
+            await viewModel.refreshAfterSceneActivation()
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let didEdit = await viewModel.editMessage(context, newText: "Edited question")
+        await delayedRefresh.value
+
+        XCTAssertTrue(didEdit)
+        XCTAssertEqual(viewModel.activeStreamID, "stream-edit")
+        XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Keep me", "Keep answer", "Edited question"])
+        XCTAssertFalse(viewModel.messages.compactMap(\.content).contains("Discarded answer"))
+    }
+
+    @MainActor
+    func testDelayedSceneRefreshCannotRestoreHistoryDiscardedByRegenerate() async throws {
+        var sessionLoads = 0
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = try makeViewModel(streamClient: streamClient) { request in
+            switch request.url?.path {
+            case "/api/session":
+                sessionLoads += 1
+                if sessionLoads == 1 {
+                    return apiTestJSONResponse("""
+                    {
+                      "session": {
+                        "session_id": "session-abc",
+                        "messages": [
+                          {"role":"user","content":"Keep question","timestamp":1,"message_id":"u-1"},
+                          {"role":"assistant","content":"Old answer","timestamp":2,"message_id":"a-2"}
+                        ]
+                      }
+                    }
+                    """, for: request)
+                }
+                Thread.sleep(forTimeInterval: 0.20)
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "messages": [
+                      {"role":"user","content":"Keep question","timestamp":1,"message_id":"u-1"},
+                      {"role":"assistant","content":"Old answer","timestamp":2,"message_id":"a-2"}
+                    ]
+                  }
+                }
+                """, for: request)
+            case "/api/session/truncate":
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "messages": [
+                      {"role":"user","content":"Keep question","timestamp":1,"message_id":"u-1"}
+                    ]
+                  }
+                }
+                """, for: request)
+            case "/api/chat/start":
+                Thread.sleep(forTimeInterval: 0.25)
+                return apiTestJSONResponse(#"{"session_id":"session-abc","stream_id":"stream-regen"}"#, for: request)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        await viewModel.loadMessages()
+        let context = try XCTUnwrap(viewModel.actionContext(for: viewModel.messages[1], visibleIndex: 1))
+        let delayedRefresh = Task { @MainActor in
+            await viewModel.refreshAfterSceneActivation()
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let didRegenerate = await viewModel.regenerateAssistantResponse(context)
+        await delayedRefresh.value
+
+        XCTAssertTrue(didRegenerate)
+        XCTAssertEqual(viewModel.activeStreamID, "stream-regen")
+        XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Keep question"])
+        XCTAssertFalse(viewModel.messages.compactMap(\.content).contains("Old answer"))
+    }
+
+    @MainActor
     func testForkFromMessageUsesKeepCountThroughMessageAndHandlesMissingForkID() async throws {
         var branchBodies: [[String: Any]] = []
         let viewModel = try makeViewModel { request in
@@ -7569,5 +8023,98 @@ private final class SpySSEStreamingClient: SSEStreamingClient {
         if automaticallyFlushPendingStreamingContent {
             flushPendingStreamingContent?()
         }
+    }
+}
+
+private final class OutOfOrderChatSessionURLProtocol: URLProtocol {
+    enum Mode: Equatable {
+        case newestSucceeds
+        case bothFail
+        case staleLoadThenSend
+        case delayedStatusAfterSend
+    }
+
+    private static let lock = NSLock()
+    private static var nextOrdinal = 0
+    private static var mode: Mode = .newestSucceeds
+    private var loadingTask: Task<Void, Never>?
+
+    static var requestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return nextOrdinal
+    }
+
+    static func reset(mode: Mode = .newestSucceeds) {
+        lock.lock()
+        nextOrdinal = 0
+        self.mode = mode
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.nextOrdinal += 1
+        let ordinal = Self.nextOrdinal
+        let mode = Self.mode
+        Self.lock.unlock()
+
+        loadingTask = Task { [weak self] in
+            guard let self, let url = request.url else { return }
+            let delayNanoseconds: UInt64
+            if mode == .delayedStatusAfterSend {
+                delayNanoseconds = url.path == "/api/chat/stream/status" ? 200_000_000 : 10_000_000
+            } else {
+                delayNanoseconds = ordinal == 1 ? 200_000_000 : 10_000_000
+            }
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+            guard !Task.isCancelled else { return }
+
+            let statusCode: Int
+            let data: Data
+            switch mode {
+            case .newestSucceeds:
+                let content = ordinal == 1 ? "Stale transcript" : "Fresh transcript"
+                let messageID = ordinal == 1 ? "stale-message" : "fresh-message"
+                statusCode = 200
+                data = Data("""
+                {"session":{"session_id":"session-abc","title":"Planning","messages":[{"role":"assistant","content":"\(content)","timestamp":1770000100,"message_id":"\(messageID)"}]}}
+                """.utf8)
+            case .bothFail:
+                statusCode = 500
+                data = Data(#"{"error":"boom"}"#.utf8)
+            case .staleLoadThenSend:
+                statusCode = 200
+                if url.path == "/api/chat/start" {
+                    data = Data(#"{"session_id":"session-abc","stream_id":"stream-new"}"#.utf8)
+                } else {
+                    data = Data(#"{"session":{"session_id":"session-abc","title":"Planning","messages":[{"role":"assistant","content":"Stale transcript","timestamp":1770000100,"message_id":"stale-message"}]}}"#.utf8)
+                }
+            case .delayedStatusAfterSend:
+                statusCode = 200
+                if url.path == "/api/chat/start" {
+                    data = Data(#"{"session_id":"session-abc","stream_id":"stream-new"}"#.utf8)
+                } else {
+                    data = Data(#"{"active":true,"stream_id":"stream-new","replay_available":true}"#.utf8)
+                }
+            }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {
+        loadingTask?.cancel()
     }
 }

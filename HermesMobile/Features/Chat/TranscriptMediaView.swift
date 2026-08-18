@@ -647,7 +647,12 @@ private struct TranscriptMediaUnavailableChip: View {
 private actor TranscriptMediaImageCache {
     static let shared = TranscriptMediaImageCache()
 
-    private var cache: [TranscriptMediaImageCacheKey: UIImage] = [:]
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 64 * 1_024 * 1_024
+        return cache
+    }()
     private var inFlight: [TranscriptMediaImageCacheKey: Task<UIImage?, Never>] = [:]
 
     func image(
@@ -656,7 +661,8 @@ private actor TranscriptMediaImageCache {
         loadMediaImage: @escaping (TranscriptMediaReference) async -> Data?
     ) async -> UIImage? {
         let key = TranscriptMediaImageCacheKey(namespace: cacheNamespace, reference: reference)
-        if let cached = cache[key] {
+        let cacheKey = key.cacheKey as NSString
+        if let cached = cache.object(forKey: cacheKey) {
             return cached
         }
 
@@ -676,15 +682,23 @@ private actor TranscriptMediaImageCache {
         inFlight[key] = nil
 
         if let image {
-            cache[key] = image
+            cache.setObject(image, forKey: cacheKey, cost: Self.memoryCost(of: image))
         }
         return image
+    }
+
+    private static func memoryCost(of image: UIImage) -> Int {
+        Int(image.size.width * image.scale * image.size.height * image.scale * 4)
     }
 }
 
 struct TranscriptMediaImageCacheKey: Hashable {
     let namespace: String
     let referenceID: String
+
+    var cacheKey: String {
+        namespace + "\u{0}" + referenceID
+    }
 
     init(namespace: String, reference: TranscriptMediaReference) {
         self.namespace = namespace

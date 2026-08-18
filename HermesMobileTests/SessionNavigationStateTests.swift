@@ -89,7 +89,8 @@ final class SessionNavigationStateTests: XCTestCase {
             },
             refreshSessionsAndActiveProfile: {
                 await recorder.record(.refreshStarted)
-            }
+            },
+            restoreLastSelectedSession: { _ in }
         )
 
         let events = await recorder.snapshot()
@@ -100,6 +101,209 @@ final class SessionNavigationStateTests: XCTestCase {
         }
 
         XCTAssertLessThan(refreshIndex, deepLinkFinishIndex)
+    }
+
+    func testInitialRestoreDoesNotWaitForDelayedNetworkRefresh() async {
+        let recorder = SessionInitialLoadEventRecorder()
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {
+                await recorder.record(.deepLinkStarted)
+                await recorder.record(.deepLinkFinished)
+            },
+            refreshSessionsAndActiveProfile: {
+                await recorder.record(.refreshStarted)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                await recorder.record(.refreshFinished)
+            },
+            restoreLastSelectedSession: { _ in
+                await recorder.record(.restoredSelection)
+            }
+        )
+
+        let events = await recorder.snapshot()
+        let deepLinkFinishIndex = events.firstIndex(of: .deepLinkFinished)
+        let restoredIndex = events.firstIndex(of: .restoredSelection)
+        let refreshFinishIndex = events.firstIndex(of: .refreshFinished)
+
+        XCTAssertNotNil(deepLinkFinishIndex)
+        XCTAssertNotNil(restoredIndex)
+        XCTAssertNotNil(refreshFinishIndex)
+        XCTAssertLessThan(try! XCTUnwrap(deepLinkFinishIndex), try! XCTUnwrap(restoredIndex))
+        XCTAssertLessThan(try! XCTUnwrap(restoredIndex), try! XCTUnwrap(refreshFinishIndex))
+    }
+
+    func testInitialRestoreReconcilesAgainAfterNetworkRefresh() async {
+        let recorder = SessionInitialLoadEventRecorder()
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {},
+            refreshSessionsAndActiveProfile: {
+                await recorder.record(.refreshStarted)
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                await recorder.record(.refreshFinished)
+            },
+            restoreLastSelectedSession: { _ in
+                await recorder.record(.restoredSelection)
+            }
+        )
+
+        let events = await recorder.snapshot()
+        let restoreIndices = events.indices.filter { events[$0] == .restoredSelection }
+        let refreshFinishIndex = try! XCTUnwrap(events.firstIndex(of: .refreshFinished))
+
+        XCTAssertEqual(restoreIndices.count, 2)
+        XCTAssertLessThan(try! XCTUnwrap(restoreIndices.first), refreshFinishIndex)
+        XCTAssertGreaterThan(try! XCTUnwrap(restoreIndices.last), refreshFinishIndex)
+    }
+
+    func testInitialRestoreIsOptimisticBeforeRefreshAndAuthoritativeAfterward() async {
+        let recorder = SessionRestoreAuthorityRecorder()
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {},
+            refreshSessionsAndActiveProfile: {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            },
+            restoreLastSelectedSession: { clearsMissingSelection in
+                await recorder.record(clearsMissingSelection)
+            }
+        )
+
+        let authorityValues = await recorder.snapshot()
+        XCTAssertEqual(authorityValues, [false, true])
+    }
+
+    @MainActor
+    func testInitialRestorePreservesSavedSessionAcrossEmptyCacheUntilLiveRefresh() async {
+        let saved = SessionSummary(sessionId: "saved", title: "Saved")
+        var state = SessionNavigationState(lastSelectedSessionID: saved.sessionId)
+        var visibleSessions: [SessionSummary] = []
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {},
+            refreshSessionsAndActiveProfile: {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                visibleSessions = [saved]
+            },
+            restoreLastSelectedSession: { clearsMissingSelection in
+                if clearsMissingSelection {
+                    state.reconcileAuthoritativeSelection(from: visibleSessions)
+                } else {
+                    state.restoreIfNeeded(
+                        from: visibleSessions,
+                        clearsMissingSelection: false
+                    )
+                }
+            }
+        )
+
+        XCTAssertEqual(state.destination, .session(saved))
+        XCTAssertEqual(state.lastSelectedSessionID, saved.sessionId)
+    }
+
+    @MainActor
+    func testInitialRestorePreservesSavedSessionAcrossStaleCacheUntilLiveRefresh() async {
+        let saved = SessionSummary(sessionId: "saved", title: "Saved")
+        let stale = SessionSummary(sessionId: "stale", title: "Stale")
+        var state = SessionNavigationState(lastSelectedSessionID: saved.sessionId)
+        var visibleSessions = [stale]
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {},
+            refreshSessionsAndActiveProfile: {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                visibleSessions = [saved]
+            },
+            restoreLastSelectedSession: { clearsMissingSelection in
+                if clearsMissingSelection {
+                    state.reconcileAuthoritativeSelection(from: visibleSessions)
+                } else {
+                    state.restoreIfNeeded(
+                        from: visibleSessions,
+                        clearsMissingSelection: false
+                    )
+                }
+            }
+        )
+
+        XCTAssertEqual(state.destination, .session(saved))
+        XCTAssertEqual(state.lastSelectedSessionID, saved.sessionId)
+    }
+
+    @MainActor
+    func testInitialRestoreEvictsCachedSessionMissingFromAuthoritativeList() async {
+        let saved = SessionSummary(sessionId: "saved", title: "Saved")
+        let remaining = SessionSummary(sessionId: "remaining", title: "Remaining")
+        var state = SessionNavigationState(lastSelectedSessionID: saved.sessionId)
+        var visibleSessions = [saved]
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {},
+            refreshSessionsAndActiveProfile: {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                visibleSessions = [remaining]
+            },
+            restoreLastSelectedSession: { clearsMissingSelection in
+                if clearsMissingSelection {
+                    state.reconcileAuthoritativeSelection(from: visibleSessions)
+                } else {
+                    state.restoreIfNeeded(
+                        from: visibleSessions,
+                        clearsMissingSelection: false
+                    )
+                }
+            }
+        )
+
+        XCTAssertNil(state.destination)
+        XCTAssertNil(state.lastSelectedSessionID)
+    }
+
+    @MainActor
+    func testAuthoritativeReconcileKeepsExplicitDeepLinkedSessionMissingFromSidebar() async {
+        let remaining = SessionSummary(sessionId: "remaining", title: "Remaining")
+        let archived = SessionSummary(sessionId: "archived", title: "Archived")
+        var state = SessionNavigationState(lastSelectedSessionID: remaining.sessionId)
+        var visibleSessions = [remaining]
+
+        await SessionListInitialLoad.run(
+            resolvePendingDeepLink: {
+                state.select(archived)
+            },
+            refreshSessionsAndActiveProfile: {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                visibleSessions = [remaining]
+            },
+            restoreLastSelectedSession: { clearsMissingSelection in
+                if clearsMissingSelection {
+                    state.reconcileAuthoritativeSelection(from: visibleSessions)
+                } else {
+                    state.restoreIfNeeded(
+                        from: visibleSessions,
+                        clearsMissingSelection: false
+                    )
+                }
+            }
+        )
+
+        XCTAssertEqual(state.destination, .session(archived))
+        XCTAssertEqual(state.lastSelectedSessionID, archived.sessionId)
+    }
+
+    func testForegroundSessionRefreshRunsOnlyAfterInitialLoadCompletes() {
+        XCTAssertFalse(SessionListForegroundRefreshPolicy.shouldRefresh(
+            didCompleteInitialLoad: false,
+            sceneIsActive: true
+        ))
+        XCTAssertFalse(SessionListForegroundRefreshPolicy.shouldRefresh(
+            didCompleteInitialLoad: true,
+            sceneIsActive: false
+        ))
+        XCTAssertTrue(SessionListForegroundRefreshPolicy.shouldRefresh(
+            didCompleteInitialLoad: true,
+            sceneIsActive: true
+        ))
     }
 
     func testExplicitNewChatRouteOverridesStoredSelection() {
@@ -297,6 +501,8 @@ private actor SessionInitialLoadEventRecorder {
         case deepLinkStarted
         case refreshStarted
         case deepLinkFinished
+        case restoredSelection
+        case refreshFinished
     }
 
     private var events: [Event] = []
@@ -307,5 +513,17 @@ private actor SessionInitialLoadEventRecorder {
 
     func snapshot() -> [Event] {
         events
+    }
+}
+
+private actor SessionRestoreAuthorityRecorder {
+    private var values: [Bool] = []
+
+    func record(_ value: Bool) {
+        values.append(value)
+    }
+
+    func snapshot() -> [Bool] {
+        values
     }
 }

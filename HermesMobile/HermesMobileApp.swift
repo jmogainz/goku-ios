@@ -48,10 +48,14 @@ struct HermesMobileApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            // Launch argument hook so the Streaming Lab can be opened without
-            // UI navigation (agent-driven simulator diagnosis, issue #234):
+            // Launch argument hooks for deterministic, server-free simulator diagnosis:
             // `xcrun simctl launch <udid> com.jacobmoore.goku --streaming-lab`
-            if ProcessInfo.processInfo.arguments.contains("--streaming-lab") {
+            // `xcrun simctl launch <udid> com.jacobmoore.goku --sidebar-brand-lab`
+            if ProcessInfo.processInfo.arguments.contains("--sidebar-brand-lab") {
+                SidebarBrandLabView()
+                    .gokuAppTheme()
+                    .preferredColorScheme(AppTheme.storedValue(appThemeRawValue).colorScheme)
+            } else if ProcessInfo.processInfo.arguments.contains("--streaming-lab") {
                 NavigationStack {
                     StreamingLabView()
                 }
@@ -74,3 +78,57 @@ struct HermesMobileApp: App {
         }
     }
 }
+
+#if DEBUG
+private struct SidebarBrandLabView: View {
+    var body: some View {
+        ZStack {
+            GokuBackdrop().ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack(spacing: 16) {
+                    GokuHeaderLogo(selectedColor: GokuVisualTheme.energyGold)
+                        .frame(width: 160, alignment: .leading)
+
+                    Spacer(minLength: 0)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 22, weight: .semibold))
+                            .frame(width: 44, height: 44)
+
+                        Text("JM")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(GokuVisualTheme.primaryActionForeground)
+                            .frame(width: 44, height: 44)
+                            .background(GokuVisualTheme.energyGold, in: Circle())
+                    }
+                    .padding(.vertical, 2)
+                    .background(.regularMaterial, in: Capsule())
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .overlay(alignment: .bottom) {
+                    Capsule()
+                        .fill(GokuVisualTheme.energyGradient)
+                        .frame(height: 2)
+                        .padding(.horizontal, 24)
+                        .offset(y: 11)
+                }
+
+                VStack(alignment: .leading, spacing: 18) {
+                    Label("Sessions", systemImage: "bubble.left.and.bubble.right")
+                        .font(.title2.bold())
+                    Text("Sidebar brand fixture")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 56)
+
+                Spacer()
+            }
+        }
+    }
+}
+#endif

@@ -59,6 +59,231 @@ final class ChatStreamCoordinatorTests: APIClientTestCase {
     }
 
     @MainActor
+    func testReconnectRetriesAfterTransientStatusFailure() async throws {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let delegate = CoordinatorDelegateSpy()
+        var statusRequestCount = 0
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            delegate: delegate,
+            timing: ChatStreamCoordinatorTiming(
+                checkingInterval: 1,
+                reconnectInterval: 2,
+                runningToolReconnectInterval: 3,
+                statusPollCooldown: 0.02,
+                transportFreshInterval: 1
+            )
+        ) { request in
+            XCTAssertEqual(request.url?.path, "/api/chat/stream/status")
+            statusRequestCount += 1
+            if statusRequestCount == 1 {
+                throw URLError(.timedOut)
+            }
+            return apiTestJSONResponse(
+                #"{"active": true, "stream_id": "stream-123", "replay_available": true}"#,
+                for: request
+            )
+        }
+
+        coordinator.start(streamID: "stream-123")
+        coordinator.suspendActiveStreamConnection()
+
+        await coordinator.reconnectIfNeeded()
+        try await waitUntil {
+            streamClient.startedURLs.count == 2
+        }
+
+        XCTAssertEqual(statusRequestCount, 2)
+        XCTAssertFalse(coordinator.isConnectionSuspended)
+        XCTAssertTrue(delegate.recoveryErrors.isEmpty)
+    }
+
+    @MainActor
+    func testSuspendingAlreadySuspendedStreamCancelsScheduledReconnectRetry() async throws {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let delegate = CoordinatorDelegateSpy()
+        var statusRequestCount = 0
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            delegate: delegate,
+            timing: ChatStreamCoordinatorTiming(
+                checkingInterval: 1,
+                reconnectInterval: 2,
+                runningToolReconnectInterval: 3,
+                statusPollCooldown: 0.01,
+                transportFreshInterval: 1
+            )
+        ) { request in
+            XCTAssertEqual(request.url?.path, "/api/chat/stream/status")
+            statusRequestCount += 1
+            throw URLError(.timedOut)
+        }
+
+        coordinator.start(streamID: "stream-123")
+        coordinator.suspendActiveStreamConnection()
+        await coordinator.reconnectIfNeeded()
+
+        // Simulate the view disappearing/backgrounding after the first failed
+        // foreground probe has scheduled its coordinator-owned retry.
+        coordinator.suspendActiveStreamConnection()
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertEqual(statusRequestCount, 1)
+        XCTAssertTrue(delegate.recoveryErrors.isEmpty)
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+    }
+
+    @MainActor
+    func testTransportErrorReconnectDoesNotStartSSEAfterLifecycleCancellation() async throws {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let delegate = CoordinatorDelegateSpy()
+        let releaseStatus = DispatchSemaphore(value: 0)
+        var statusRequestCount = 0
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            delegate: delegate,
+            timing: ChatStreamCoordinatorTiming(
+                checkingInterval: 1,
+                reconnectInterval: 2,
+                runningToolReconnectInterval: 3,
+                statusPollCooldown: 0.01,
+                transportFreshInterval: 1
+            )
+        ) { request in
+            XCTAssertEqual(request.url?.path, "/api/chat/stream/status")
+            statusRequestCount += 1
+            XCTAssertEqual(releaseStatus.wait(timeout: .now() + .seconds(5)), .success)
+            return apiTestJSONResponse(
+                #"{"active":true,"stream_id":"stream-123","replay_available":true}"#,
+                for: request
+            )
+        }
+
+        coordinator.start(streamID: "stream-123")
+        streamClient.emit(.transportError("The network connection was lost."))
+        try await waitUntil { statusRequestCount == 1 }
+
+        coordinator.suspendActiveStreamConnection()
+        coordinator.cancelReconnectRetry()
+        releaseStatus.signal()
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(statusRequestCount, 1)
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        XCTAssertTrue(coordinator.isConnectionSuspended)
+    }
+
+    @MainActor
+    func testTransportErrorReconnectDoesNotRearmAfterLifecycleCancellationOnRetryableFailure() async throws {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let delegate = CoordinatorDelegateSpy()
+        let releaseStatus = DispatchSemaphore(value: 0)
+        var statusRequestCount = 0
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            delegate: delegate,
+            timing: ChatStreamCoordinatorTiming(
+                checkingInterval: 1,
+                reconnectInterval: 2,
+                runningToolReconnectInterval: 3,
+                statusPollCooldown: 0.01,
+                transportFreshInterval: 1
+            )
+        ) { request in
+            XCTAssertEqual(request.url?.path, "/api/chat/stream/status")
+            statusRequestCount += 1
+            XCTAssertEqual(releaseStatus.wait(timeout: .now() + .seconds(5)), .success)
+            throw URLError(.timedOut)
+        }
+
+        coordinator.start(streamID: "stream-123")
+        coordinator.suspendActiveStreamConnection()
+        let reconnect = Task { @MainActor in
+            await coordinator.reconnectIfNeeded()
+        }
+        try await waitUntil { statusRequestCount == 1 }
+
+        coordinator.cancelReconnectRetry()
+        releaseStatus.signal()
+        await reconnect.value
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertEqual(statusRequestCount, 1)
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        XCTAssertTrue(delegate.recoveryErrors.isEmpty)
+        XCTAssertTrue(coordinator.isConnectionSuspended)
+    }
+
+    @MainActor
+    func testReconnectStopsAfterBoundedTransientFailuresAndReportsOnce() async throws {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let delegate = CoordinatorDelegateSpy()
+        var statusRequestCount = 0
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            delegate: delegate,
+            timing: ChatStreamCoordinatorTiming(
+                checkingInterval: 1,
+                reconnectInterval: 2,
+                runningToolReconnectInterval: 3,
+                statusPollCooldown: 0.01,
+                transportFreshInterval: 1
+            )
+        ) { request in
+            XCTAssertEqual(request.url?.path, "/api/chat/stream/status")
+            statusRequestCount += 1
+            throw URLError(.timedOut)
+        }
+
+        coordinator.start(streamID: "stream-123")
+        coordinator.suspendActiveStreamConnection()
+
+        await coordinator.reconnectIfNeeded()
+        try await waitUntil(timeout: 8) { delegate.recoveryErrors.count == 1 }
+
+        XCTAssertEqual(statusRequestCount, 4)
+        XCTAssertEqual(delegate.recoveryErrors.count, 1)
+        XCTAssertTrue(coordinator.isConnectionSuspended)
+    }
+
+    @MainActor
+    func testReconnectDoesNotRetryUnauthorizedFailure() async throws {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let delegate = CoordinatorDelegateSpy()
+        var statusRequestCount = 0
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            delegate: delegate,
+            timing: ChatStreamCoordinatorTiming(
+                checkingInterval: 1,
+                reconnectInterval: 2,
+                runningToolReconnectInterval: 3,
+                statusPollCooldown: 0.01,
+                transportFreshInterval: 1
+            )
+        ) { request in
+            statusRequestCount += 1
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 401,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )
+            return (try XCTUnwrap(response), Data(#"{"error":"unauthorized"}"#.utf8))
+        }
+
+        coordinator.start(streamID: "stream-123")
+        coordinator.suspendActiveStreamConnection()
+
+        await coordinator.reconnectIfNeeded()
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertEqual(statusRequestCount, 1)
+        XCTAssertEqual(delegate.recoveryErrors.count, 1)
+        XCTAssertTrue(coordinator.isConnectionSuspended)
+    }
+
+    @MainActor
     func testForegroundReconnectActiveStreamReloadsAndRestartsWithoutReplay() async throws {
         let streamClient = CoordinatorSpySSEStreamingClient()
         let delegate = CoordinatorDelegateSpy()

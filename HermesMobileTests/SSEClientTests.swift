@@ -8,6 +8,89 @@ final class SSEClientTests: XCTestCase {
         super.tearDown()
     }
 
+    func testSSEClientReportsUnexpectedCleanCloseAsTransportError() async throws {
+        DelayedSSEURLProtocol.configure(chunks: [
+            DelayedSSEChunk(text: ": heartbeat\n\n", delayNanoseconds: 1_000_000)
+        ])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DelayedSSEURLProtocol.self]
+        let client = SSEClient(urlSessionConfiguration: configuration)
+        let closed = expectation(description: "clean EOF becomes transport failure")
+
+        client.start(url: URL(string: "https://example.com/api/chat/stream")!) { event in
+            if case .transportError = event {
+                closed.fulfill()
+            }
+        }
+
+        await fulfillment(of: [closed], timeout: 1)
+        client.stop()
+    }
+
+    func testSSEClientIntentionalStopOfOpenConnectionDoesNotReportTransportError() async throws {
+        DelayedSSEURLProtocol.configure(chunks: [
+            DelayedSSEChunk(text: ": heartbeat\n\n", delayNanoseconds: 1_000_000),
+            DelayedSSEChunk(text: ": keep-open\n\n", delayNanoseconds: 1_000_000_000)
+        ])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DelayedSSEURLProtocol.self]
+        let client = SSEClient(urlSessionConfiguration: configuration)
+        let opened = expectation(description: "connection delivered a heartbeat before stop")
+        let unexpectedTransportError = expectation(description: "intentional close stays silent")
+        unexpectedTransportError.isInverted = true
+
+        client.start(url: URL(string: "https://example.com/api/chat/stream")!) { event in
+            switch event {
+            case .heartbeat:
+                opened.fulfill()
+            case .transportError:
+                unexpectedTransportError.fulfill()
+            default:
+                break
+            }
+        }
+        await fulfillment(of: [opened], timeout: 1)
+        client.stop()
+
+        await fulfillment(of: [unexpectedTransportError], timeout: 0.2)
+    }
+
+    func testSSEClientReplacementRejectsDelayedCloseFromPreviousConnection() async throws {
+        DelayedSSEURLProtocol.configure(chunks: [
+            DelayedSSEChunk(text: ": heartbeat\n\n", delayNanoseconds: 1_000_000),
+            DelayedSSEChunk(text: ": keep-open\n\n", delayNanoseconds: 1_000_000_000)
+        ])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DelayedSSEURLProtocol.self]
+        let client = SSEClient(urlSessionConfiguration: configuration)
+        let firstOpened = expectation(description: "first connection opened")
+        let replacementOpened = expectation(description: "replacement connection opened")
+        let staleFailure = expectation(description: "old connection cannot fail replacement")
+        staleFailure.isInverted = true
+
+        client.start(url: URL(string: "https://example.com/api/chat/stream?stream_id=first")!) { event in
+            switch event {
+            case .heartbeat:
+                firstOpened.fulfill()
+            case .transportError:
+                staleFailure.fulfill()
+            default:
+                break
+            }
+        }
+        await fulfillment(of: [firstOpened], timeout: 1)
+
+        client.start(url: URL(string: "https://example.com/api/chat/stream?stream_id=replacement")!) { event in
+            if case .heartbeat = event {
+                replacementOpened.fulfill()
+            }
+        }
+
+        await fulfillment(of: [replacementOpened], timeout: 1)
+        await fulfillment(of: [staleFailure], timeout: 0.2)
+        client.stop()
+    }
+
     func testSSEClientDeliversIncrementalEventsBeforeDone() async throws {
         DelayedSSEURLProtocol.configure(chunks: [
             DelayedSSEChunk(

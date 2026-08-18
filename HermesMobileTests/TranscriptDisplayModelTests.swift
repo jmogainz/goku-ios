@@ -7,6 +7,47 @@ import UniformTypeIdentifiers
 @testable import HermesMobile
 
 final class TranscriptMessageTests: XCTestCase {
+    func testAttachmentImageCacheSeparatesSamePathAcrossServerSessionNamespaces() async throws {
+        let cache = AttachmentImageCache()
+        let path = "/tmp/shared-preview.png"
+        let blueData = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        let redData = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { context in
+            UIColor.systemRed.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        var firstLoads = 0
+        var secondLoads = 0
+
+        let first = await cache.image(
+            for: path,
+            cacheNamespace: "https://one.example.test|session-a"
+        ) { _ in
+            firstLoads += 1
+            return blueData
+        }
+        let second = await cache.image(
+            for: path,
+            cacheNamespace: "https://two.example.test|session-a"
+        ) { _ in
+            secondLoads += 1
+            return redData
+        }
+        _ = await cache.image(
+            for: path,
+            cacheNamespace: "https://one.example.test|session-a"
+        ) { _ in
+            XCTFail("The first namespace should reuse its cached image")
+            return nil
+        }
+
+        XCTAssertEqual(firstLoads, 1)
+        XCTAssertEqual(secondLoads, 1)
+        XCTAssertNotEqual(try XCTUnwrap(first?.pngData()), try XCTUnwrap(second?.pngData()))
+    }
+
     func testTranscriptMessagesHideToolRowsAndPreserveLoadedIndices() {
         let messages = [
             ChatMessage(role: "user", content: "Plan it", timestamp: 1, messageId: "u1"),
@@ -171,6 +212,108 @@ final class TranscriptMessageTests: XCTestCase {
 
         XCTAssertEqual(transcriptMessages.map(\.loadedIndex), [0, 1])
         XCTAssertEqual(transcriptMessages.map(\.message.role), ["user", "assistant"])
+    }
+
+    func testCacheWindowKeepsOnlyNewestPageForConstantTimePersistence() {
+        let messages = (0..<1_000).map { index in
+            ChatMessage(
+                role: index.isMultiple(of: 2) ? "user" : "assistant",
+                content: "Message \(index)",
+                timestamp: Double(index),
+                messageId: "message-\(index)"
+            )
+        }
+
+        let window = ChatViewModel.cacheMessageWindow(from: messages)
+
+        XCTAssertEqual(window.count, 50)
+        XCTAssertEqual(window.first?.messageId, "message-950")
+        XCTAssertEqual(window.last?.messageId, "message-999")
+    }
+
+    func testReasoningGroupsAreMemoizedAcrossIncrementalStreamingUpdates() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("HermesMobile/Features/Chat/ChatViewModel.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("private(set) var displayedReasoningGroups: [ReasoningGroup] = []"),
+            "Reasoning derivation must be stored instead of rescanning the full transcript on every body evaluation."
+        )
+        let incrementalStart = try XCTUnwrap(source.range(of: "private func replaceDisplayedTranscriptMessage"))
+        let incrementalEnd = try XCTUnwrap(
+            source.range(of: "private func recomputeDisplayedTranscriptMessages", range: incrementalStart.upperBound..<source.endIndex)
+        )
+        let incrementalSource = String(source[incrementalStart.lowerBound..<incrementalEnd.lowerBound])
+        XCTAssertFalse(
+            incrementalSource.contains("recomputeDisplayedReasoningGroups"),
+            "Appending visible assistant tokens must not rescan historical reasoning groups."
+        )
+        XCTAssertTrue(source.contains("displayedReasoningGroupsForAnchor"))
+
+        let transcriptViewURL = repositoryRoot.appendingPathComponent(
+            "HermesMobile/Features/Chat/ChatTranscriptView.swift"
+        )
+        let transcriptSource = try String(contentsOf: transcriptViewURL, encoding: .utf8)
+        XCTAssertTrue(transcriptSource.contains("reasoningGroupsForAnchor:"))
+        XCTAssertFalse(
+            transcriptSource.contains("reasoningGroups.filter { $0.anchorMessageID == transcriptMessage.anchorID }"),
+            "Each row must receive only its anchor's reasoning groups instead of filtering the full history."
+        )
+    }
+
+    func testStreamingFlushUpdatesOnlyTheLiveTranscriptRow() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HermesMobile/Features/Chat/ChatViewModel.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let flushStart = try XCTUnwrap(source.range(of: "private func flushAssistantTokens"))
+        let flushEnd = try XCTUnwrap(
+            source.range(of: "private func deduplicatedReplayToken", range: flushStart.upperBound..<source.endIndex)
+        )
+        let flushSource = String(source[flushStart.lowerBound..<flushEnd.lowerBound])
+
+        XCTAssertTrue(
+            flushSource.contains("replaceStreamingMessage(") && flushSource.contains("at: index"),
+            "A streaming token must update only its live row instead of remapping every loaded transcript message."
+        )
+        XCTAssertFalse(
+            flushSource.contains("messages[index] = ChatMessage"),
+            "Direct array replacement triggers the full messages observer and scales with conversation length."
+        )
+        XCTAssertTrue(source.contains("displayedTranscriptRowIndexByLoadedIndex"))
+        let replacementStart = try XCTUnwrap(source.range(of: "private func replaceDisplayedTranscriptMessage"))
+        let replacementEnd = try XCTUnwrap(
+            source.range(of: "private func recomputeDisplayedTranscriptMessages", range: replacementStart.upperBound..<source.endIndex)
+        )
+        let replacementSource = String(source[replacementStart.lowerBound..<replacementEnd.lowerBound])
+        XCTAssertFalse(
+            replacementSource.contains("firstIndex"),
+            "Incremental token flushes must use O(1) loaded-index lookup instead of scanning every displayed row."
+        )
+    }
+
+    func testTranscriptUsesLazyRowConstructionForLongConversations() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HermesMobile/Features/Chat/ChatTranscriptView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let contentStart = try XCTUnwrap(source.range(of: "private func transcriptScrollContent("))
+        let contentEnd = try XCTUnwrap(
+            source.range(of: "private func compressionReferenceCardView", range: contentStart.upperBound..<source.endIndex)
+        )
+        let scrollContent = source[contentStart.lowerBound..<contentEnd.lowerBound]
+
+        XCTAssertTrue(
+            scrollContent.contains("\n        LazyVStack(spacing: transcriptMessageSpacing)"),
+            "Long conversations must lazily instantiate transcript rows instead of building the full history eagerly."
+        )
+        XCTAssertFalse(scrollContent.contains("\n        VStack(spacing: transcriptMessageSpacing)"))
     }
 }
 
