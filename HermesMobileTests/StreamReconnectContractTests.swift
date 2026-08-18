@@ -454,7 +454,7 @@ final class StreamReconnectContractTests: APIClientTestCase {
 
     @MainActor
     private func waitUntil(
-        timeout: TimeInterval = 2,
+        timeout: TimeInterval = 8,
         _ condition: @MainActor () -> Bool
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)

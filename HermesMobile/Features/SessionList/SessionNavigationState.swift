@@ -14,11 +14,17 @@ enum SessionNavigationDestination: Hashable, Identifiable {
 }
 
 struct SessionNavigationState: Equatable {
+    private enum DestinationOrigin: Equatable {
+        case explicit
+        case restored
+    }
+
     private(set) var destination: SessionNavigationDestination?
     private(set) var lastSelectedSessionID: String?
     private(set) var rootRevision = 0
     private var newChatSessionID: String?
     private var deepLinkedSessionLoadID: String?
+    private var destinationOrigin: DestinationOrigin?
 
     init(lastSelectedSessionID: String? = nil) {
         self.lastSelectedSessionID = Self.normalized(lastSelectedSessionID)
@@ -37,6 +43,7 @@ struct SessionNavigationState: Equatable {
         rootRevision += 1
         newChatSessionID = nil
         destination = .session(session)
+        destinationOrigin = .explicit
         remember(session)
     }
 
@@ -44,12 +51,14 @@ struct SessionNavigationState: Equatable {
         rootRevision += 1
         newChatSessionID = nil
         destination = .newChat(route)
+        destinationOrigin = .explicit
     }
 
     mutating func select(_ utility: SessionListUtilityDestination) {
         rootRevision += 1
         newChatSessionID = nil
         destination = .utility(utility)
+        destinationOrigin = .explicit
     }
 
     mutating func remember(_ session: SessionSummary) {
@@ -63,6 +72,7 @@ struct SessionNavigationState: Equatable {
     mutating func clearDestination() {
         destination = nil
         newChatSessionID = nil
+        destinationOrigin = nil
     }
 
     mutating func beginDeepLinkedSessionLoad(id: String?) -> String? {
@@ -105,6 +115,44 @@ struct SessionNavigationState: Equatable {
         }
 
         destination = .session(session)
+        destinationOrigin = .restored
+    }
+
+    /// Reconciles an already-restored (or still-empty) destination against the
+    /// authoritative live session list. Unlike `restoreIfNeeded`, this can evict a
+    /// destination that was opened from cache and later disappeared on the server.
+    /// Explicit `select()` destinations — including deep-linked archived/hidden
+    /// sessions that never appear in the sidebar — are left alone.
+    mutating func reconcileAuthoritativeSelection(
+        from sessions: [SessionSummary],
+        pendingDeepLinkedSessionID: String? = nil
+    ) {
+        guard deepLinkedSessionLoadID == nil,
+              Self.normalized(pendingDeepLinkedSessionID) == nil
+        else { return }
+
+        if destinationOrigin == .explicit {
+            return
+        }
+
+        if case .session(let selected) = destination {
+            let selectedID = Self.normalized(selected.sessionId)
+            let stillExists = sessions.contains {
+                Self.normalized($0.sessionId) == selectedID
+            }
+            if stillExists {
+                return
+            }
+            destination = nil
+            newChatSessionID = nil
+            destinationOrigin = nil
+            if lastSelectedSessionID == selectedID {
+                lastSelectedSessionID = nil
+            }
+            return
+        }
+
+        restoreIfNeeded(from: sessions, clearsMissingSelection: true, pendingDeepLinkedSessionID: pendingDeepLinkedSessionID)
     }
 
     /// Invalidates both the visible detail and stored restoration target when the
@@ -115,6 +163,7 @@ struct SessionNavigationState: Equatable {
         if selectedSessionID == sessionID {
             destination = nil
             newChatSessionID = nil
+            destinationOrigin = nil
         }
 
         if lastSelectedSessionID == sessionID {

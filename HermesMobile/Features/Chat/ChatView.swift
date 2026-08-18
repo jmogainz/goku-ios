@@ -323,6 +323,7 @@ struct ChatView: View {
     @State private var responseCompletionNotificationTracker = ResponseCompletionNotificationTracker()
     @State private var responseCompletionBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     @State private var activeStreamStatusRefreshTask: Task<Void, Never>?
+    @State private var foregroundRefreshTask: Task<Void, Never>?
     @State private var initialAttachments: [SharedAttachmentImport]
     @State private var didUploadInitialAttachments = false
 
@@ -605,15 +606,21 @@ struct ChatView: View {
                 viewModel.setShowsLiveActivityResponseExcerpts(showsLiveActivityResponseExcerpts)
             }
             .onDisappear {
+                foregroundRefreshTask?.cancel()
+                foregroundRefreshTask = nil
                 activeStreamStatusRefreshTask?.cancel()
                 activeStreamStatusRefreshTask = nil
+                viewModel.cancelStreamReconnectRetry()
                 viewModel.stopListening()
                 viewModel.suspendStreamForNavigation()
                 viewModel.cleanupPollingTasks()
             }
             .onAppear {
-                Task {
+                foregroundRefreshTask?.cancel()
+                foregroundRefreshTask = Task { @MainActor in
+                    guard !Task.isCancelled, scenePhase == .active else { return }
                     await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+                    guard !Task.isCancelled, scenePhase == .active else { return }
 
                     if viewModel.activeStreamID != nil {
                         handleActiveStreamChange()
@@ -1075,7 +1082,9 @@ struct ChatView: View {
             messages: viewModel.messages,
             displayedTranscriptMessages: displayedTranscriptMessages,
             compressionReferenceCard: viewModel.compressionReferenceCard,
-            reasoningGroups: viewModel.displayedReasoningGroups,
+            reasoningGroupsForAnchor: { anchorMessageID in
+                viewModel.displayedReasoningGroupsForAnchor(anchorMessageID)
+            },
             completedToolCallGroupsForAnchor: { anchorMessageID in
                 viewModel.completedToolCallGroupsForAnchor(anchorMessageID)
             },
@@ -1851,21 +1860,28 @@ struct ChatView: View {
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .background:
+            foregroundRefreshTask?.cancel()
+            foregroundRefreshTask = nil
+            viewModel.cancelStreamReconnectRetry()
             if viewModel.activeStreamID != nil {
                 beginResponseCompletionBackgroundTask()
             }
         case .active:
             viewModel.refreshListenPlaybackProgressAfterSceneActivation()
             endResponseCompletionBackgroundTask()
-            Task {
-                await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+            foregroundRefreshTask?.cancel()
+            foregroundRefreshTask = Task { @MainActor in
+                await viewModel.refreshAfterSceneActivation(modelContext: modelContext)
+                guard !Task.isCancelled, scenePhase == .active else { return }
 
                 if let lastError = viewModel.lastError {
                     onAPIError(lastError)
                 }
             }
         case .inactive:
-            break
+            foregroundRefreshTask?.cancel()
+            foregroundRefreshTask = nil
+            viewModel.cancelStreamReconnectRetry()
         @unknown default:
             break
         }

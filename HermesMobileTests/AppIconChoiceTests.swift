@@ -12,6 +12,13 @@ final class AppIconChoiceTests: XCTestCase {
         XCTAssertEqual(AppIconChoice.resolved(from: "LegacyAlternateIcon"), .system)
     }
 
+    func testSidebarBrandUsesCanonicalPortraitMedallion() {
+        XCTAssertEqual(GokuHeaderLogo.portraitImageName, "GokuAppIcon")
+        XCTAssertEqual(GokuHeaderLogo.productName, "Goku")
+        XCTAssertEqual(GokuHeaderLogo.productDescriptor, "MOBILE AGENT")
+        XCTAssertEqual(GokuHeaderLogo.accessibilityLabelText, "Goku Mobile Agent")
+    }
+
     func testPrivacyPolicyUsesGokuControlledPublicURL() {
         XCTAssertEqual(
             AppConfig.privacyPolicyURL.absoluteString,
@@ -24,5 +31,27 @@ final class AppIconChoiceTests: XCTestCase {
             AppConfig.supportURL.absoluteString,
             "https://github.com/jmogainz/goku-ios/issues"
         )
+    }
+
+    func testForegroundRefreshTasksAreSceneOwnedAndCancelled() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let chatSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("HermesMobile/Features/Chat/ChatView.swift"),
+            encoding: .utf8
+        )
+        let sessionListSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("HermesMobile/Features/SessionList/SessionListView.swift"),
+            encoding: .utf8
+        )
+
+        for source in [chatSource, sessionListSource] {
+            XCTAssertTrue(source.contains("@State private var foregroundRefreshTask: Task<Void, Never>?"))
+            XCTAssertTrue(source.contains("foregroundRefreshTask?.cancel()"))
+            XCTAssertTrue(source.contains("scenePhase == .active"))
+        }
+        XCTAssertTrue(chatSource.contains(".onAppear {\n                foregroundRefreshTask?.cancel()\n                foregroundRefreshTask = Task { @MainActor in\n                    guard !Task.isCancelled, scenePhase == .active else { return }\n                    await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)"))
+        XCTAssertTrue(chatSource.contains("viewModel.cancelStreamReconnectRetry()"))
     }
 }

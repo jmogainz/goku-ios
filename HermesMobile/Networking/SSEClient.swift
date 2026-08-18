@@ -14,6 +14,7 @@ protocol SSEStreamingClient: AnyObject {
 final class SSEClient: SSEStreamingClient {
     private let baseConfiguration: URLSessionConfiguration
     private var eventSource: EventSource?
+    private var activeConnectionID: UUID?
     private(set) var lastEventID: String?
     /// Read at stream start so a new stream picks up the latest headers (#255).
     private let customHeaderProvider: @MainActor () -> [CustomHeader]
@@ -29,8 +30,13 @@ final class SSEClient: SSEStreamingClient {
     func start(url: URL, onEvent: @escaping @MainActor (SSEEvent) -> Void) {
         stop()
         lastEventID = nil
+        let connectionID = UUID()
+        activeConnectionID = connectionID
 
         let handler = SSEEventHandler(
+            shouldDeliver: { [weak self] in
+                self?.activeConnectionID == connectionID
+            },
             onEventID: { [weak self] eventID in
                 self?.lastEventID = eventID
             },
@@ -59,8 +65,14 @@ final class SSEClient: SSEStreamingClient {
     }
 
     func stop() {
-        eventSource?.stop()
+        // Invalidate callbacks before asking LDSwiftEventSource to stop. Its
+        // `stop()` synchronously/asynchronously invokes `onClosed()` for an open
+        // source, and an older close can arrive after a replacement has started.
+        // Connection-scoped delivery keeps intentional and stale closes silent.
+        activeConnectionID = nil
+        let source = eventSource
         eventSource = nil
+        source?.stop()
     }
 }
 
@@ -367,25 +379,34 @@ private extension String {
 }
 
 private final class SSEEventHandler: EventHandler {
+    private let shouldDeliver: @MainActor () -> Bool
     private let onEventID: @MainActor (String) -> Void
     private let onEvent: @MainActor (SSEEvent) -> Void
 
     init(
+        shouldDeliver: @escaping @MainActor () -> Bool,
         onEventID: @escaping @MainActor (String) -> Void,
         onEvent: @escaping @MainActor (SSEEvent) -> Void
     ) {
+        self.shouldDeliver = shouldDeliver
         self.onEventID = onEventID
         self.onEvent = onEvent
     }
 
     func onOpened() {}
 
-    func onClosed() {}
+    func onClosed() {
+        Task { @MainActor in
+            guard shouldDeliver() else { return }
+            onEvent(.transportError(URLError(.networkConnectionLost).localizedDescription))
+        }
+    }
 
     func onMessage(eventType: String, messageEvent: MessageEvent) {
         let event = SSEEventDecoder.decode(eventType: eventType, data: messageEvent.data)
 
         Task { @MainActor in
+            guard shouldDeliver() else { return }
             let eventID = messageEvent.lastEventId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !eventID.isEmpty {
                 onEventID(eventID)
@@ -396,12 +417,14 @@ private final class SSEEventHandler: EventHandler {
 
     func onComment(comment _: String) {
         Task { @MainActor in
+            guard shouldDeliver() else { return }
             onEvent(.heartbeat)
         }
     }
 
     func onError(error: Error) {
         Task { @MainActor in
+            guard shouldDeliver() else { return }
             onEvent(.transportError(error.localizedDescription))
         }
     }

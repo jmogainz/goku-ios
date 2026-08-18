@@ -144,6 +144,63 @@ final class SessionListMutationTests: XCTestCase {
     }
 
     @MainActor
+    func testNewestOverlappingSessionLoadWinsWhenOlderRequestFinishesLast() async throws {
+        OutOfOrderSessionURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderSessionURLProtocol.self]
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let client = APIClient(baseURL: server, session: URLSession(configuration: configuration))
+        let viewModel = SessionListViewModel(server: server, client: client)
+
+        let firstLoad = Task { await viewModel.load() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let secondResult = await viewModel.load()
+        _ = await firstLoad.value
+
+        XCTAssertTrue(secondResult)
+        XCTAssertEqual(viewModel.sessions.map(\.sessionId), ["new"])
+        XCTAssertEqual(viewModel.sessions.map(\.title), ["Fresh result"])
+        XCTAssertEqual(OutOfOrderSessionURLProtocol.requestCount, 2)
+    }
+
+    @MainActor
+    func testLoadPaintsCachedSessionsBeforeSlowNetworkReconcile() async throws {
+        let context = try makeContext()
+        let serverURL = try XCTUnwrap(URL(string: "https://example.test"))
+        try CacheStore.cacheSessions(
+            [SessionSummary(sessionId: "cached-session", title: "Cached immediately", archived: false)],
+            serverURL: serverURL,
+            in: context
+        )
+
+        let requestStarted = expectation(description: "session request started")
+        let allowResponse = DispatchSemaphore(value: 0)
+        let viewModel = try makeViewModel { request in
+            XCTAssertEqual(request.url?.path, "/api/sessions")
+            requestStarted.fulfill()
+            allowResponse.wait()
+            return apiTestJSONResponse(
+                #"{"sessions":[{"session_id":"fresh-session","title":"Fresh response","archived":false}]}"#,
+                for: request
+            )
+        }
+
+        let loadTask = Task { @MainActor in
+            await viewModel.load(modelContext: context)
+        }
+        await fulfillment(of: [requestStarted], timeout: 2)
+
+        XCTAssertEqual(viewModel.sessions.compactMap(\.sessionId), ["cached-session"])
+        XCTAssertFalse(viewModel.isViewingCachedData)
+
+        allowResponse.signal()
+        let loaded = await loadTask.value
+        XCTAssertTrue(loaded)
+        XCTAssertEqual(viewModel.sessions.compactMap(\.sessionId), ["fresh-session"])
+        XCTAssertFalse(viewModel.isViewingCachedData)
+    }
+
+    @MainActor
     func testLoadDoesNotReplaceSuccessfulOnlineSessionsWithStaleCache() async throws {
         let context = try makeContext()
         let serverURL = try XCTUnwrap(URL(string: "https://example.test"))
@@ -295,6 +352,36 @@ final class SessionListMutationTests: XCTestCase {
         XCTAssertFalse(viewModel.isViewingCachedData)
         XCTAssertEqual(viewModel.errorMessage, "The Hermes server hit an internal error. Check the server logs, then try again.")
         XCTAssertNotNil(viewModel.lastError)
+    }
+
+    @MainActor
+    func testInitialCachePrepaintIsClearedForRealServerError() async throws {
+        let context = try makeContext()
+        let serverURL = try XCTUnwrap(URL(string: "https://example.test"))
+        try CacheStore.cacheSessions(
+            [SessionSummary(sessionId: "cached-session", title: "Cached planning", archived: false)],
+            serverURL: serverURL,
+            in: context
+        )
+        let viewModel = try makeViewModel { request in
+            XCTAssertEqual(request.url?.path, "/api/sessions")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )
+            return (try XCTUnwrap(response), Data(#"{"error":"boom"}"#.utf8))
+        }
+
+        viewModel.prepareInitialCachedSessions(modelContext: context)
+        XCTAssertEqual(viewModel.sessions.compactMap(\.sessionId), ["cached-session"])
+
+        await viewModel.load(modelContext: context)
+
+        XCTAssertTrue(viewModel.sessions.isEmpty)
+        XCTAssertFalse(viewModel.isViewingCachedData)
+        XCTAssertEqual(viewModel.errorMessage, "The Hermes server hit an internal error. Check the server logs, then try again.")
     }
 
     @MainActor
@@ -2903,5 +2990,59 @@ private final class LockedSessionMutationRequestCounts {
         defer { lock.unlock() }
 
         return (loadRequestCount, pinMutationRequestCount)
+    }
+}
+
+private final class OutOfOrderSessionURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var nextOrdinal = 0
+    private var loadingTask: Task<Void, Never>?
+
+    static var requestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return nextOrdinal
+    }
+
+    static func reset() {
+        lock.lock()
+        nextOrdinal = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.nextOrdinal += 1
+        let ordinal = Self.nextOrdinal
+        Self.lock.unlock()
+
+        loadingTask = Task { [weak self] in
+            guard let self, let url = request.url else { return }
+            try? await Task.sleep(nanoseconds: ordinal == 1 ? 200_000_000 : 10_000_000)
+            guard !Task.isCancelled else { return }
+
+            let title = ordinal == 1 ? "Stale result" : "Fresh result"
+            let sessionID = ordinal == 1 ? "old" : "new"
+            let data = Data("""
+            {"sessions":[{"session_id":"\(sessionID)","title":"\(title)"}]}
+            """.utf8)
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {
+        loadingTask?.cancel()
     }
 }
