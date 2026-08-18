@@ -2,6 +2,21 @@ import SwiftUI
 
 struct MessageBubbleView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appColorPalette) private var palette
+
+    private var userBubbleBackground: Color {
+        GokuVisualTheme.action(for: colorScheme, palette: palette)
+    }
+
+    private var userBubbleForeground: Color {
+        GokuVisualTheme.accentForeground(for: colorScheme, palette: palette)
+    }
+
+    private var userBubbleBorder: Color {
+        colorScheme == .dark
+            ? GokuVisualTheme.action(for: .dark, palette: palette).opacity(0.34)
+            : GokuVisualTheme.canvas(for: .dark, palette: palette).opacity(0.10)
+    }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(ChatTranscriptDisplaySettings.hidesAttachmentPathsKey) private var hidesAttachmentPaths = true
@@ -372,22 +387,6 @@ struct MessageBubbleView: View {
 
     private var userBubbleLeadingGutter: CGFloat {
         dynamicTypeSize.isAccessibilitySize ? 20 : 32
-    }
-
-    private var userBubbleBackground: Color {
-        colorScheme == .dark
-            ? GokuVisualTheme.royalBlue.opacity(0.80)
-            : GokuVisualTheme.royalBlue
-    }
-
-    private var userBubbleForeground: Color {
-        .white
-    }
-
-    private var userBubbleBorder: Color {
-        colorScheme == .dark
-            ? GokuVisualTheme.skyBlue.opacity(0.34)
-            : GokuVisualTheme.deepNavy.opacity(0.10)
     }
 
     private var messageText: String {

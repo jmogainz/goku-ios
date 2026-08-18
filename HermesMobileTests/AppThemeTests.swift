@@ -12,6 +12,80 @@ final class AppThemeTests: XCTestCase {
         XCTAssertNil(AppTheme.system.colorScheme)
         XCTAssertEqual(AppTheme.light.colorScheme, .light)
         XCTAssertEqual(AppTheme.dark.colorScheme, .dark)
+        XCTAssertNil(AppTheme.chatgpt.colorScheme)
+        XCTAssertNil(AppTheme.midnight.colorScheme)
+        XCTAssertNil(AppTheme.forest.colorScheme)
+        XCTAssertNil(AppTheme.sand.colorScheme)
+    }
+
+    func testThemeDropdownKeepsGokuDefaultsAndAddsNamedPalettes() {
+        XCTAssertEqual(AppTheme.allCases.map(\.rawValue), [
+            "system", "light", "dark", "chatgpt", "midnight", "forest", "sand"
+        ])
+        XCTAssertEqual(AppTheme.system.title, "Goku")
+        XCTAssertEqual(AppTheme.chatgpt.title, "ChatGPT")
+        XCTAssertEqual(AppTheme.midnight.title, "Midnight")
+        XCTAssertEqual(AppTheme.forest.title, "Forest")
+        XCTAssertEqual(AppTheme.sand.title, "Sand")
+        XCTAssertEqual(AppTheme.system.palette, .goku)
+        XCTAssertEqual(AppTheme.light.palette, .goku)
+        XCTAssertEqual(AppTheme.dark.palette, .goku)
+        XCTAssertEqual(AppTheme.chatgpt.palette, .chatgpt)
+        XCTAssertEqual(AppTheme.midnight.palette, .midnight)
+        XCTAssertEqual(AppTheme.forest.palette, .forest)
+        XCTAssertEqual(AppTheme.sand.palette, .sand)
+        XCTAssertEqual(AppTheme.storedValue("chatgpt"), .chatgpt)
+    }
+
+    func testNamedPalettesKeepReadableBrandedPairs() {
+        let palettes: [AppColorPalette] = [.chatgpt, .midnight, .forest, .sand]
+        for palette in palettes {
+            for scheme in [ColorScheme.light, .dark] {
+                XCTAssertGreaterThanOrEqual(
+                    GokuVisualTheme.contrastRatio(
+                        foregroundHex: GokuVisualTheme.actionHex(for: scheme, palette: palette),
+                        backgroundHex: GokuVisualTheme.panelHex(for: scheme, palette: palette)
+                    ),
+                    4.5,
+                    "action/panel failed for \(palette) \(scheme)"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    GokuVisualTheme.contrastRatio(
+                        foregroundHex: GokuVisualTheme.accentForegroundHex(for: scheme, palette: palette),
+                        backgroundHex: GokuVisualTheme.actionHex(for: scheme, palette: palette)
+                    ),
+                    4.5,
+                    "accent/action failed for \(palette) \(scheme)"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    GokuVisualTheme.contrastRatio(
+                        foregroundHex: GokuVisualTheme.brandAccentHex(for: scheme, palette: palette),
+                        backgroundHex: GokuVisualTheme.canvasHex(for: scheme, palette: palette)
+                    ),
+                    4.5,
+                    "brand/canvas failed for \(palette) \(scheme)"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    GokuVisualTheme.contrastRatio(
+                        foregroundHex: GokuVisualTheme.energyForegroundHex(for: palette),
+                        backgroundHex: GokuVisualTheme.energyHex(for: palette)
+                    ),
+                    4.5,
+                    "energy failed for \(palette)"
+                )
+            }
+        }
+    }
+
+    func testChatGPTPaletteUsesNeutralSurfacesAndSageAccent() {
+        XCTAssertEqual(GokuVisualTheme.canvasHex(for: .light, palette: .chatgpt), "#F7F7F8")
+        XCTAssertEqual(GokuVisualTheme.canvasHex(for: .dark, palette: .chatgpt), "#212121")
+        XCTAssertEqual(GokuVisualTheme.actionHex(for: .light, palette: .chatgpt), "#0B7A5E")
+        XCTAssertEqual(GokuVisualTheme.actionHex(for: .dark, palette: .chatgpt), "#4ADE80")
+        XCTAssertNotEqual(
+            GokuVisualTheme.canvasHex(for: .light, palette: .chatgpt),
+            GokuVisualTheme.canvasHex(for: .light, palette: .goku)
+        )
     }
 
     func testGokuVisualThemeUsesCanonicalPalette() {

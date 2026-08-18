@@ -1,8 +1,18 @@
 import SwiftUI
 
-/// Product-wide semantic palette for Goku. The colors borrow the recognizable
-/// gi-orange / blue / energy-gold rhythm while keeping the UI native, quiet, and
-/// readable in both system appearances.
+private struct AppColorPaletteKey: EnvironmentKey {
+    static let defaultValue = AppColorPalette.goku
+}
+
+extension EnvironmentValues {
+    var appColorPalette: AppColorPalette {
+        get { self[AppColorPaletteKey.self] }
+        set { self[AppColorPaletteKey.self] = newValue }
+    }
+}
+
+/// Product-wide semantic palette. Goku stays the default; named themes swap
+/// canvas/action/energy tokens while keeping the same roles and contrast rules.
 enum GokuVisualTheme {
     static let giOrangeHex = "#F47A21"
     static let royalBlueHex = "#2166F3"
@@ -20,48 +30,68 @@ enum GokuVisualTheme {
     static let energy = energyGold
     static let primaryActionForeground = Color(hexRGB: primaryActionForegroundHex)!
 
-    static func canvasHex(for colorScheme: ColorScheme) -> String {
-        colorScheme == .dark ? deepNavyHex : "#FFF8EE"
+    static func canvasHex(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).canvasHex(for: colorScheme)
     }
 
-    static func panelHex(for colorScheme: ColorScheme) -> String {
-        colorScheme == .dark ? "#102A4C" : "#FFFFFF"
+    static func panelHex(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).panelHex(for: colorScheme)
     }
 
-    static func actionHex(for colorScheme: ColorScheme) -> String {
-        colorScheme == .dark ? skyBlueHex : royalBlueHex
+    static func actionHex(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).actionHex(for: colorScheme)
     }
 
-    static func action(for colorScheme: ColorScheme) -> Color {
-        Color(hexRGB: actionHex(for: colorScheme))!
+    static func action(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: actionHex(for: colorScheme, palette: palette))!
     }
 
-    static func accentForegroundHex(for colorScheme: ColorScheme) -> String {
-        colorScheme == .dark ? deepNavyHex : "#FFFFFF"
+    static func accentForegroundHex(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).accentForegroundHex(for: colorScheme)
     }
 
-    static func accentForeground(for colorScheme: ColorScheme) -> Color {
-        Color(hexRGB: accentForegroundHex(for: colorScheme))!
+    static func accentForeground(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: accentForegroundHex(for: colorScheme, palette: palette))!
     }
 
-    static func brandAccentHex(for colorScheme: ColorScheme) -> String {
-        colorScheme == .dark ? "#FFB21C" : "#9A3F00"
+    static func brandAccentHex(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).brandAccentHex(for: colorScheme)
     }
 
-    static func brandAccent(for colorScheme: ColorScheme) -> Color {
-        Color(hexRGB: brandAccentHex(for: colorScheme))!
+    static func brandAccent(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: brandAccentHex(for: colorScheme, palette: palette))!
     }
 
-    static func canvas(for colorScheme: ColorScheme) -> Color {
-        Color(hexRGB: canvasHex(for: colorScheme))!
+    static func canvas(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: canvasHex(for: colorScheme, palette: palette))!
     }
 
-    static func panel(for colorScheme: ColorScheme) -> Color {
-        Color(hexRGB: panelHex(for: colorScheme))!
+    static func panel(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: panelHex(for: colorScheme, palette: palette))!
     }
 
-    static func raisedPanel(for colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color(hexRGB: "#16365E")! : Color(hexRGB: "#FFFDF9")!
+    static func raisedPanel(for colorScheme: ColorScheme, palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: tokens(for: palette).raisedHex(for: colorScheme))!
+    }
+
+    static func energyHex(for palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).energyHex
+    }
+
+    static func energy(for palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: energyHex(for: palette))!
+    }
+
+    static func energyForegroundHex(for palette: AppColorPalette = .goku) -> String {
+        tokens(for: palette).energyForegroundHex
+    }
+
+    static func energyForeground(for palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: energyForegroundHex(for: palette))!
+    }
+
+    static func brandActionColor(for palette: AppColorPalette = .goku) -> Color {
+        Color(hexRGB: tokens(for: palette).brandActionHex)!
     }
 
     static func chromeSurfaceOpacity(reduceTransparency: Bool) -> Double {
@@ -78,10 +108,10 @@ enum GokuVisualTheme {
 
     static func navigationBarBackground(
         for colorScheme: ColorScheme,
-        reduceTransparency: Bool
+        reduceTransparency: Bool,
+        palette: AppColorPalette = .goku
     ) -> Color {
-        let base = colorScheme == .dark ? deepNavy : Color(hexRGB: "#FFF8EE")!
-        return base.opacity(navigationBarOpacity(
+        canvas(for: colorScheme, palette: palette).opacity(navigationBarOpacity(
             for: colorScheme,
             reduceTransparency: reduceTransparency
         ))
@@ -102,26 +132,43 @@ enum GokuVisualTheme {
 
     static func subtleStroke(
         for colorScheme: ColorScheme,
-        increasedContrast: Bool = false
+        increasedContrast: Bool = false,
+        palette: AppColorPalette = .goku
     ) -> Color {
-        let base = colorScheme == .dark ? skyBlue : royalBlue
-        return base.opacity(panelStrokeOpacity(
+        action(for: colorScheme, palette: palette).opacity(panelStrokeOpacity(
             for: colorScheme,
             increasedContrast: increasedContrast
         ))
     }
 
     static var brandGradient: LinearGradient {
-        LinearGradient(
-            colors: [energyGold, giOrange],
+        brandGradient(for: .goku)
+    }
+
+    static func brandGradient(for palette: AppColorPalette) -> LinearGradient {
+        let tokens = tokens(for: palette)
+        return LinearGradient(
+            colors: [
+                Color(hexRGB: tokens.energyHex)!,
+                Color(hexRGB: tokens.brandActionHex)!
+            ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
     }
 
     static var energyGradient: LinearGradient {
-        LinearGradient(
-            colors: [royalBlue, skyBlue, energyGold],
+        energyGradient(for: .goku)
+    }
+
+    static func energyGradient(for palette: AppColorPalette) -> LinearGradient {
+        let tokens = tokens(for: palette)
+        return LinearGradient(
+            colors: [
+                Color(hexRGB: tokens.actionLightHex)!,
+                Color(hexRGB: tokens.gradientMidHex)!,
+                Color(hexRGB: tokens.energyHex)!
+            ],
             startPoint: .leading,
             endPoint: .trailing
         )
@@ -135,6 +182,116 @@ enum GokuVisualTheme {
         let lighter = max(foreground, background)
         let darker = min(foreground, background)
         return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    static func tokens(for palette: AppColorPalette) -> VisualThemeTokens {
+        switch palette {
+        case .goku:
+            VisualThemeTokens(
+                brandActionHex: giOrangeHex,
+                energyHex: energyGoldHex,
+                energyForegroundHex: deepNavyHex,
+                actionLightHex: royalBlueHex,
+                actionDarkHex: skyBlueHex,
+                canvasLightHex: "#FFF8EE",
+                canvasDarkHex: deepNavyHex,
+                panelLightHex: "#FFFFFF",
+                panelDarkHex: "#102A4C",
+                raisedLightHex: "#FFFDF9",
+                raisedDarkHex: "#16365E",
+                brandAccentLightHex: "#9A3F00",
+                brandAccentDarkHex: "#FFB21C",
+                accentForegroundLightHex: "#FFFFFF",
+                accentForegroundDarkHex: deepNavyHex,
+                backdropMidLightHex: "#F3F7FF",
+                backdropMidDarkHex: "#0B2342",
+                gradientMidHex: skyBlueHex
+            )
+        case .chatgpt:
+            VisualThemeTokens(
+                brandActionHex: "#10A37F",
+                energyHex: "#10A37F",
+                energyForegroundHex: "#06281F",
+                actionLightHex: "#0B7A5E",
+                actionDarkHex: "#4ADE80",
+                canvasLightHex: "#F7F7F8",
+                canvasDarkHex: "#212121",
+                panelLightHex: "#FFFFFF",
+                panelDarkHex: "#2F2F2F",
+                raisedLightHex: "#F3F4F6",
+                raisedDarkHex: "#3A3A3A",
+                brandAccentLightHex: "#0B7A5E",
+                brandAccentDarkHex: "#86EFAC",
+                accentForegroundLightHex: "#FFFFFF",
+                accentForegroundDarkHex: "#102018",
+                backdropMidLightHex: "#EEF2F1",
+                backdropMidDarkHex: "#191919",
+                gradientMidHex: "#19C37D"
+            )
+        case .midnight:
+            VisualThemeTokens(
+                brandActionHex: "#5B6CFF",
+                energyHex: "#8B7CFF",
+                energyForegroundHex: "#16132A",
+                actionLightHex: "#3D4FD8",
+                actionDarkHex: "#A5B4FF",
+                canvasLightHex: "#F3F5FF",
+                canvasDarkHex: "#0B1020",
+                panelLightHex: "#FFFFFF",
+                panelDarkHex: "#161C33",
+                raisedLightHex: "#F7F8FF",
+                raisedDarkHex: "#1E2744",
+                brandAccentLightHex: "#2F3DB0",
+                brandAccentDarkHex: "#C4B5FD",
+                accentForegroundLightHex: "#FFFFFF",
+                accentForegroundDarkHex: "#12162A",
+                backdropMidLightHex: "#E8ECFF",
+                backdropMidDarkHex: "#10162B",
+                gradientMidHex: "#7C8CFF"
+            )
+        case .forest:
+            VisualThemeTokens(
+                brandActionHex: "#2F8F57",
+                energyHex: "#7BC67E",
+                energyForegroundHex: "#102016",
+                actionLightHex: "#1B6B43",
+                actionDarkHex: "#6ED39A",
+                canvasLightHex: "#F3F8F3",
+                canvasDarkHex: "#0C1A12",
+                panelLightHex: "#FFFFFF",
+                panelDarkHex: "#163022",
+                raisedLightHex: "#F8FBF7",
+                raisedDarkHex: "#1C3B29",
+                brandAccentLightHex: "#165736",
+                brandAccentDarkHex: "#8EE0B0",
+                accentForegroundLightHex: "#FFFFFF",
+                accentForegroundDarkHex: "#0C1A12",
+                backdropMidLightHex: "#E7F3E8",
+                backdropMidDarkHex: "#102418",
+                gradientMidHex: "#4FAE73"
+            )
+        case .sand:
+            VisualThemeTokens(
+                brandActionHex: "#C96442",
+                energyHex: "#E0B07A",
+                energyForegroundHex: "#2A1B10",
+                actionLightHex: "#9A4328",
+                actionDarkHex: "#E8A07A",
+                canvasLightHex: "#FAF6F1",
+                canvasDarkHex: "#1C1916",
+                panelLightHex: "#FFFFFF",
+                panelDarkHex: "#2A241F",
+                raisedLightHex: "#FFFCF8",
+                raisedDarkHex: "#352C25",
+                brandAccentLightHex: "#8A3B22",
+                brandAccentDarkHex: "#F0C7A8",
+                accentForegroundLightHex: "#FFFFFF",
+                accentForegroundDarkHex: "#2A1B10",
+                backdropMidLightHex: "#F3EBE1",
+                backdropMidDarkHex: "#241E1A",
+                gradientMidHex: "#D08A5A"
+            )
+        }
     }
 
     private static func relativeLuminance(for rawHex: String) -> Double? {
@@ -156,32 +313,95 @@ enum GokuVisualTheme {
     }
 }
 
+struct VisualThemeTokens: Equatable {
+    let brandActionHex: String
+    let energyHex: String
+    let energyForegroundHex: String
+    let actionLightHex: String
+    let actionDarkHex: String
+    let canvasLightHex: String
+    let canvasDarkHex: String
+    let panelLightHex: String
+    let panelDarkHex: String
+    let raisedLightHex: String
+    let raisedDarkHex: String
+    let brandAccentLightHex: String
+    let brandAccentDarkHex: String
+    let accentForegroundLightHex: String
+    let accentForegroundDarkHex: String
+    let backdropMidLightHex: String
+    let backdropMidDarkHex: String
+    let gradientMidHex: String
+
+    func canvasHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? canvasDarkHex : canvasLightHex
+    }
+
+    func panelHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? panelDarkHex : panelLightHex
+    }
+
+    func raisedHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? raisedDarkHex : raisedLightHex
+    }
+
+    func actionHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? actionDarkHex : actionLightHex
+    }
+
+    func brandAccentHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? brandAccentDarkHex : brandAccentLightHex
+    }
+
+    func accentForegroundHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? accentForegroundDarkHex : accentForegroundLightHex
+    }
+}
+
 struct GokuBackdrop: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.appColorPalette) private var palette
 
     var body: some View {
+        let tokens = GokuVisualTheme.tokens(for: palette)
         ZStack {
-            GokuVisualTheme.canvas(for: colorScheme)
+            GokuVisualTheme.canvas(for: colorScheme, palette: palette)
 
             if !reduceTransparency {
                 LinearGradient(
                     colors: colorScheme == .dark
-                        ? [GokuVisualTheme.deepNavy, Color(hexRGB: "#0B2342")!, GokuVisualTheme.deepNavy]
-                        : [Color(hexRGB: "#FFF8EE")!, Color(hexRGB: "#F3F7FF")!, Color(hexRGB: "#FFFDF8")!],
+                        ? [
+                            GokuVisualTheme.canvas(for: .dark, palette: palette),
+                            Color(hexRGB: tokens.backdropMidDarkHex)!,
+                            GokuVisualTheme.canvas(for: .dark, palette: palette)
+                        ]
+                        : [
+                            GokuVisualTheme.canvas(for: .light, palette: palette),
+                            Color(hexRGB: tokens.backdropMidLightHex)!,
+                            Color(hexRGB: tokens.raisedLightHex)!
+                        ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
 
                 RadialGradient(
-                    colors: [GokuVisualTheme.giOrange.opacity(colorScheme == .dark ? 0.16 : 0.10), .clear],
+                    colors: [
+                        GokuVisualTheme.brandActionColor(for: palette)
+                            .opacity(colorScheme == .dark ? 0.16 : 0.10),
+                        .clear
+                    ],
                     center: .topTrailing,
                     startRadius: 4,
                     endRadius: 360
                 )
 
                 RadialGradient(
-                    colors: [GokuVisualTheme.royalBlue.opacity(colorScheme == .dark ? 0.18 : 0.08), .clear],
+                    colors: [
+                        GokuVisualTheme.action(for: colorScheme, palette: palette)
+                            .opacity(colorScheme == .dark ? 0.18 : 0.08),
+                        .clear
+                    ],
                     center: .bottomLeading,
                     startRadius: 8,
                     endRadius: 420
@@ -194,17 +414,24 @@ struct GokuBackdrop: View {
 }
 
 private struct GokuAppThemeModifier: ViewModifier {
+    @AppStorage(AppTheme.storageKey) private var appThemeRawValue = AppTheme.system.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
+    private var palette: AppColorPalette {
+        AppTheme.storedValue(appThemeRawValue).palette
+    }
+
     func body(content: Content) -> some View {
         content
-            .tint(GokuVisualTheme.action(for: colorScheme))
+            .environment(\.appColorPalette, palette)
+            .tint(GokuVisualTheme.action(for: colorScheme, palette: palette))
             .background { GokuBackdrop().ignoresSafeArea() }
             .toolbarBackground(
                 GokuVisualTheme.navigationBarBackground(
                     for: colorScheme,
-                    reduceTransparency: reduceTransparency
+                    reduceTransparency: reduceTransparency,
+                    palette: palette
                 ),
                 for: .navigationBar
             )
@@ -216,6 +443,7 @@ private struct GokuPanelModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.appColorPalette) private var palette
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
@@ -224,8 +452,9 @@ private struct GokuPanelModifier: ViewModifier {
             .background {
                 shape.fill(
                     reduceTransparency
-                        ? GokuVisualTheme.panel(for: colorScheme)
-                        : GokuVisualTheme.panel(for: colorScheme).opacity(colorScheme == .dark ? 0.78 : 0.82)
+                        ? GokuVisualTheme.panel(for: colorScheme, palette: palette)
+                        : GokuVisualTheme.panel(for: colorScheme, palette: palette)
+                            .opacity(colorScheme == .dark ? 0.78 : 0.82)
                 )
             }
             .overlay {
@@ -233,7 +462,8 @@ private struct GokuPanelModifier: ViewModifier {
                     .stroke(
                         GokuVisualTheme.subtleStroke(
                             for: colorScheme,
-                            increasedContrast: colorSchemeContrast == .increased
+                            increasedContrast: colorSchemeContrast == .increased,
+                            palette: palette
                         ),
                         lineWidth: colorSchemeContrast == .increased ? 1 : 0.8
                     )
@@ -241,8 +471,8 @@ private struct GokuPanelModifier: ViewModifier {
             }
             .shadow(
                 color: colorScheme == .dark
-                    ? GokuVisualTheme.royalBlue.opacity(0.10)
-                    : GokuVisualTheme.giOrange.opacity(0.07),
+                    ? GokuVisualTheme.action(for: .dark, palette: palette).opacity(0.10)
+                    : GokuVisualTheme.brandActionColor(for: palette).opacity(0.07),
                 radius: 16,
                 y: 7
             )

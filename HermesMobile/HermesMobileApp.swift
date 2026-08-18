@@ -87,8 +87,8 @@ private struct SidebarBrandLabView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 16) {
-                    GokuHeaderLogo(selectedColor: GokuVisualTheme.energyGold)
-                        .frame(width: 160, alignment: .leading)
+                    GokuHeaderLogo()
+                        .frame(width: 132, alignment: .leading)
 
                     Spacer(minLength: 0)
 
@@ -99,9 +99,9 @@ private struct SidebarBrandLabView: View {
 
                         Text("JM")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(GokuVisualTheme.primaryActionForeground)
+                            .foregroundStyle(GokuVisualTheme.energyForeground())
                             .frame(width: 44, height: 44)
-                            .background(GokuVisualTheme.energyGold, in: Circle())
+                            .background(GokuVisualTheme.energy(), in: Circle())
                     }
                     .padding(.vertical, 2)
                     .background(.regularMaterial, in: Capsule())

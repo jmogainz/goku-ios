@@ -56,6 +56,7 @@ private struct ComposerStatusView: View {
 struct MessageComposerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appColorPalette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(HeaderLogoColor.storageKey) private var headerLogoColorHex = HeaderLogoColor.defaultHex
@@ -366,13 +367,14 @@ struct MessageComposerView: View {
                 .adaptiveGlass(
                     .regular,
                     isInteractive: true,
-                    tint: GokuVisualTheme.royalBlue.opacity(colorScheme == .dark ? 0.22 : 0.10),
+                    tint: GokuVisualTheme.action(for: colorScheme, palette: palette)
+                        .opacity(colorScheme == .dark ? 0.22 : 0.10),
                     fallbackMaterial: .ultraThinMaterial,
                     in: RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous)
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous)
-                        .stroke(GokuVisualTheme.subtleStroke(for: colorScheme), lineWidth: 0.8)
+                        .stroke(GokuVisualTheme.subtleStroke(for: colorScheme, palette: palette), lineWidth: 0.8)
                         .allowsHitTesting(false)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous))
@@ -978,7 +980,7 @@ struct MessageComposerView: View {
             return colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.12)
         }
 
-        return GokuVisualTheme.energyGold
+        return GokuVisualTheme.energy(for: palette)
     }
 
     private var actionButtonForeground: Color {
@@ -993,7 +995,7 @@ struct MessageComposerView: View {
             return Color(.secondaryLabel)
         }
 
-        return GokuVisualTheme.primaryActionForeground
+        return GokuVisualTheme.energyForeground(for: palette)
     }
 
     private var isComposerExpanded: Bool {
