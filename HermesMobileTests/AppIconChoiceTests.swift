@@ -12,11 +12,11 @@ final class AppIconChoiceTests: XCTestCase {
         XCTAssertEqual(AppIconChoice.resolved(from: "LegacyAlternateIcon"), .system)
     }
 
-    func testSidebarBrandUsesCanonicalPortraitMedallion() {
-        XCTAssertEqual(GokuHeaderLogo.portraitImageName, "GokuAppIcon")
+    func testSidebarBrandUsesSimpleWordmark() {
         XCTAssertEqual(GokuHeaderLogo.productName, "Goku")
         XCTAssertEqual(GokuHeaderLogo.productDescriptor, "MOBILE AGENT")
         XCTAssertEqual(GokuHeaderLogo.accessibilityLabelText, "Goku Mobile Agent")
+        XCTAssertFalse(GokuHeaderLogo.showsPortraitMedallion)
     }
 
     func testPrivacyPolicyUsesGokuControlledPublicURL() {

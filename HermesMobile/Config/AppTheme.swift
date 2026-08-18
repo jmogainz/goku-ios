@@ -5,10 +5,22 @@ import UserNotifications
 import UIKit
 #endif
 
+enum AppColorPalette: String, CaseIterable, Sendable {
+    case goku
+    case chatgpt
+    case midnight
+    case forest
+    case sand
+}
+
 enum AppTheme: String, CaseIterable, Identifiable {
     case system
     case light
     case dark
+    case chatgpt
+    case midnight
+    case forest
+    case sand
 
     static let storageKey = "appTheme"
 
@@ -17,22 +29,45 @@ enum AppTheme: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .system:
-            String(localized: "System")
+            String(localized: "Goku")
         case .light:
             String(localized: "Light")
         case .dark:
             String(localized: "Dark")
+        case .chatgpt:
+            String(localized: "ChatGPT")
+        case .midnight:
+            String(localized: "Midnight")
+        case .forest:
+            String(localized: "Forest")
+        case .sand:
+            String(localized: "Sand")
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
-        case .system:
-            nil
         case .light:
             .light
         case .dark:
             .dark
+        case .system, .chatgpt, .midnight, .forest, .sand:
+            nil
+        }
+    }
+
+    var palette: AppColorPalette {
+        switch self {
+        case .system, .light, .dark:
+            .goku
+        case .chatgpt:
+            .chatgpt
+        case .midnight:
+            .midnight
+        case .forest:
+            .forest
+        case .sand:
+            .sand
         }
     }
 

@@ -109,6 +109,7 @@ final class NavigationAppearanceObserverViewController: UIViewController {
 
 private struct ListenPlaybackBar: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appColorPalette) private var palette
 
     let phase: ListenPlaybackPhase
     let displayTime: TimeInterval
@@ -178,7 +179,7 @@ private struct ListenPlaybackBar: View {
                         .fill(Color.accentColor)
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(GokuVisualTheme.accentForeground(for: colorScheme))
+                        .foregroundStyle(GokuVisualTheme.accentForeground(for: colorScheme, palette: palette))
                 }
                 .frame(width: 34, height: 34)
             }

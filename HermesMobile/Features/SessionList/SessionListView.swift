@@ -19,6 +19,7 @@ struct SessionListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appColorPalette) private var palette
     @State private var viewModel: SessionListViewModel
     @State private var navigationState: SessionNavigationState
     @State private var sessionPendingRename: SessionSummary?
@@ -521,9 +522,9 @@ struct SessionListView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: searchChromeIsExpanded ? 0 : 16) {
-            GokuHeaderLogo(selectedColor: selectedHeaderLogoColor)
+            GokuHeaderLogo()
                 .padding(.leading, searchChromeIsExpanded ? 0 : 9)
-                .frame(width: searchChromeIsExpanded ? 0 : 160, alignment: .leading)
+                .frame(width: searchChromeIsExpanded ? 0 : 132, alignment: .leading)
                 .opacity(searchChromeIsExpanded ? 0 : 1)
                 .clipped()
                 .accessibilityHidden(searchChromeIsExpanded)
@@ -535,7 +536,7 @@ struct SessionListView: View {
         .padding(.top, 28)
         .overlay(alignment: .bottom) {
             Capsule()
-                .fill(GokuVisualTheme.energyGradient)
+                .fill(GokuVisualTheme.energyGradient(for: palette))
                 .frame(height: 2)
                 .padding(.horizontal, 24)
                 .offset(y: 11)
@@ -1336,96 +1337,34 @@ enum SessionListNewChatReturn {
 }
 
 struct GokuHeaderLogo: View {
-    let selectedColor: Color
-
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.appColorPalette) private var palette
 
-    static let portraitImageName = "GokuAppIcon"
     static let productName = "Goku"
     static let productDescriptor = "MOBILE AGENT"
     static let accessibilityLabelText = "Goku Mobile Agent"
-
-    private let medallionSize: CGFloat = 48
-    private let portraitSize: CGFloat = 40
+    static let showsPortraitMedallion = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            portraitMedallion
+        VStack(alignment: .leading, spacing: 0) {
+            Text(Self.productName)
+                .font(.title3.weight(.black))
+                .fontDesign(.rounded)
+                .tracking(-0.35)
+                .foregroundStyle(.primary)
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text(Self.productName)
-                    .font(.title3.weight(.black))
+            if !dynamicTypeSize.isAccessibilitySize {
+                Text(Self.productDescriptor)
+                    .font(.caption2.weight(.bold))
                     .fontDesign(.rounded)
-                    .tracking(-0.35)
-                    .foregroundStyle(.primary)
-
-                if !dynamicTypeSize.isAccessibilitySize {
-                    Text(Self.productDescriptor)
-                        .font(.caption2.weight(.bold))
-                        .fontDesign(.rounded)
-                        .tracking(1)
-                        .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme))
-                }
+                    .tracking(1)
+                    .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme, palette: palette))
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabelText)
-    }
-
-    private var portraitMedallion: some View {
-        ZStack {
-            Circle()
-                .fill(GokuVisualTheme.deepNavy)
-
-            Image(Self.portraitImageName)
-                .resizable()
-                .scaledToFill()
-                .frame(width: portraitSize, height: portraitSize)
-                .clipShape(Circle())
-                .overlay {
-                    Circle()
-                        .stroke(.white.opacity(colorScheme == .dark ? 0.18 : 0.34), lineWidth: 0.75)
-                }
-
-            Circle()
-                .trim(from: 0.04, to: 0.84)
-                .stroke(
-                    GokuVisualTheme.energyGradient,
-                    style: StrokeStyle(
-                        lineWidth: colorSchemeContrast == .increased ? 3.2 : 2.5,
-                        lineCap: .round
-                    )
-                )
-                .rotationEffect(.degrees(-32))
-
-            Circle()
-                .fill(GokuVisualTheme.energyGold)
-                .frame(width: colorSchemeContrast == .increased ? 6 : 5)
-                .overlay {
-                    Circle().stroke(GokuVisualTheme.deepNavy.opacity(0.75), lineWidth: 0.75)
-                }
-                .offset(x: 18, y: -15)
-        }
-        .frame(width: medallionSize, height: medallionSize)
-        .shadow(
-            color: reduceTransparency ? .clear : selectedColor.opacity(colorScheme == .dark ? 0.32 : 0.18),
-            radius: 9
-        )
-        .overlay {
-            Circle()
-                .stroke(
-                    GokuVisualTheme.subtleStroke(
-                        for: colorScheme,
-                        increasedContrast: colorSchemeContrast == .increased
-                    ),
-                    lineWidth: colorSchemeContrast == .increased ? 1.2 : 0.6
-                )
-        }
-        .allowsHitTesting(false)
     }
 }
 
@@ -1694,13 +1633,8 @@ private struct PendingNewChatView: View {
 }
 
 #Preview("Goku Header Logo") {
-    VStack(spacing: 16) {
-        ForEach(HeaderLogoColor.presets.prefix(4)) { preset in
-            GokuHeaderLogo(selectedColor: preset.color)
-                .frame(width: 220)
-        }
-    }
-    .padding(24)
-    .background(Color.black)
-    .preferredColorScheme(.dark)
+    GokuHeaderLogo()
+        .padding(24)
+        .background(Color.black)
+        .preferredColorScheme(.dark)
 }

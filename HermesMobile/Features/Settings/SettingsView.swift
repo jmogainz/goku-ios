@@ -129,6 +129,8 @@ struct SettingsView: View {
                         }
                     }
 
+                    SettingsFootnote(String(localized: "Goku, Light, and Dark keep the Goku colors. Other themes restyle the whole app and still follow your Light/Dark system setting."))
+
                     SettingsDivider()
 
                     HeaderLogoColorSettings(
@@ -1429,18 +1431,6 @@ private struct HeaderLogoColorSettings: View {
             }
             .font(.subheadline)
 
-            GokuHeaderLogo(selectedColor: HeaderLogoColor.color(for: selectedHex))
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.black.opacity(0.26), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
-                .accessibilityHidden(true)
-
             HStack(spacing: 10) {
                 ForEach(HeaderLogoColor.presets) { preset in
                     HeaderLogoColorPresetButton(
@@ -1490,6 +1480,7 @@ private struct HeaderLogoColorPresetButton: View {
 
 private struct SettingsCard<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appColorPalette) private var palette
     @ScaledMetric(relativeTo: .body) private var contentSpacing: CGFloat = 12
 
     let title: String
@@ -1505,7 +1496,7 @@ private struct SettingsCard<Content: View>: View {
             Text(title)
                 .textCase(.uppercase)
                 .font(AppFont.caption(weight: .semibold))
-                .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme))
+                .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme, palette: palette))
                 .padding(.horizontal, 4)
                 .padding(.bottom, 8)
 

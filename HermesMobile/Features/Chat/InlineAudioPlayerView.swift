@@ -8,6 +8,7 @@ import SwiftUI
 /// any other that's currently playing (see `AudioAttachmentPlaybackCenter`).
 struct InlineAudioPlayerView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appColorPalette) private var palette
 
     /// Accessibility / labelling name for the clip (typically the file name).
     let title: String
@@ -69,7 +70,7 @@ struct InlineAudioPlayerView: View {
                     Circle().fill(Color.accentColor)
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(GokuVisualTheme.accentForeground(for: colorScheme))
+                        .foregroundStyle(GokuVisualTheme.accentForeground(for: colorScheme, palette: palette))
                 }
                 .frame(width: 40, height: 40)
             }
