@@ -5,9 +5,7 @@ default_platform(:ios)
 platform :ios do
   desc "Archive and upload an internal-only TestFlight build"
   lane :internal_testflight do
-    # Fastlane's default cwd is ./fastlane; repo-relative paths must run from root.
-    repo_root = File.expand_path("..", __dir__)
-    Dir.chdir(repo_root)
+    repo_root = File.expand_path("..", FastlaneCore::FastlaneFolder.path)
 
     ref_name = ENV["GITHUB_REF_NAME"].to_s
     unless ref_name.empty? || ref_name == "master"
@@ -18,13 +16,14 @@ platform :ios do
     issuer_id = required_env!("APP_STORE_CONNECT_ISSUER_ID")
     key_path = required_env!("APP_STORE_CONNECT_KEY_PATH")
     team_id = ENV.fetch("TEAM_ID", "U8G25F98S2")
-    project = ENV.fetch("PROJECT_PATH", "HermesMobile.xcodeproj")
     scheme = ENV.fetch("SCHEME", "HermesMobile")
     marketing_version = required_env!("MARKETING_VERSION")
     bundle_id = ENV.fetch("BUNDLE_ID", "com.jacobmoore.goku")
-    export_options = ENV.fetch("EXPORT_OPTIONS_PLIST", "ci/TestFlightExportIPA.plist")
-    output_directory = ENV.fetch("EXPORT_PATH", File.join("build", "TestFlightExport"))
-    derived_data = ENV.fetch("DERIVED_DATA_PATH", File.join("build", "DerivedData"))
+
+    project = absolutize(ENV.fetch("PROJECT_PATH", "HermesMobile.xcodeproj"), repo_root)
+    export_options = absolutize(ENV.fetch("EXPORT_OPTIONS_PLIST", "ci/TestFlightExportIPA.plist"), repo_root)
+    output_directory = absolutize(ENV.fetch("EXPORT_PATH", File.join("build", "TestFlightExport")), repo_root)
+    derived_data = absolutize(ENV.fetch("DERIVED_DATA_PATH", File.join("build", "DerivedData")), repo_root)
 
     api_key = app_store_connect_api_key(
       key_id: key_id,
@@ -34,8 +33,15 @@ platform :ios do
       in_house: false
     )
 
-    build_number = sh("ruby ci/select_testflight_build_number.rb").strip
-    UI.user_error!("Build-number selector returned an empty value") if build_number.empty?
+    build_number = ENV["REQUESTED_BUILD_NUMBER"].to_s.strip
+    if build_number.empty?
+      latest = latest_testflight_build_number(
+        api_key: api_key,
+        app_identifier: bundle_id,
+        version: marketing_version
+      )
+      build_number = (latest.to_i + 1).to_s
+    end
     UI.success("Uploading #{bundle_id} #{marketing_version} (#{build_number}) as internal-only TestFlight")
 
     xcargs = [
@@ -76,5 +82,10 @@ platform :ios do
     value = ENV[name].to_s
     UI.user_error!("Missing required environment variable: #{name}") if value.empty?
     value
+  end
+
+  def absolutize(path, repo_root)
+    return path if path.start_with?("/")
+    File.expand_path(path, repo_root)
   end
 end
