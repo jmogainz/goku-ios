@@ -347,6 +347,7 @@ enum RTLLayout {
 }
 
 enum ChatActiveRunStatusKind: Equatable {
+    case connecting
     case starting
     case active
     case checking
@@ -355,6 +356,8 @@ enum ChatActiveRunStatusKind: Equatable {
 
     var label: String {
         switch self {
+        case .connecting:
+            return String(localized: "Connecting…")
         case .starting:
             return String(localized: "Starting response")
         case .active:
@@ -370,6 +373,8 @@ enum ChatActiveRunStatusKind: Equatable {
 
     var accessibilityLabel: String {
         switch self {
+        case .connecting:
+            return String(localized: "Connecting to conversation")
         case .starting:
             return String(localized: "Hermes is starting a response")
         case .active:
@@ -402,15 +407,15 @@ enum ChatActiveRunStatusPolicy {
         hasActiveStream: Bool,
         activeStreamRecoveryState: ActiveStreamRecoveryState,
         isCancellingStream: Bool,
-        isScrolledNearBottom: Bool
+        isScrolledNearBottom: Bool,
+        isEstablishingConnection: Bool = false
     ) -> ChatActiveRunStatusPresentation? {
-        guard !isScrolledNearBottom else { return nil }
-
         if isCancellingStream {
             return ChatActiveRunStatusPresentation(kind: .stopping)
         }
 
         if isStartingChat {
+            guard !isScrolledNearBottom else { return nil }
             return ChatActiveRunStatusPresentation(kind: .starting)
         }
 
@@ -423,8 +428,16 @@ enum ChatActiveRunStatusPolicy {
             break
         }
 
-        guard hasActiveStream else { return nil }
-        return ChatActiveRunStatusPresentation(kind: .active)
+        if hasActiveStream {
+            guard !isScrolledNearBottom else { return nil }
+            return ChatActiveRunStatusPresentation(kind: .active)
+        }
+
+        if isEstablishingConnection {
+            return ChatActiveRunStatusPresentation(kind: .connecting)
+        }
+
+        return nil
     }
 }
 
