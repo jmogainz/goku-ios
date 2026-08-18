@@ -343,7 +343,7 @@ struct ChatView: View {
         self.autoStartsVoiceInput = autoStartsVoiceInput
         _draftMessage = State(initialValue: initialDraft)
         _initialAttachments = State(initialValue: initialAttachments)
-        _viewModel = State(initialValue: ChatViewModel(
+        _viewModel = State(initialValue: OpenChatSessionStore.shared.viewModel(
             session: session,
             server: server,
             showsLiveActivityResponseExcerpts: UserDefaults.standard.bool(
@@ -610,13 +610,11 @@ struct ChatView: View {
                 foregroundRefreshTask = nil
                 activeStreamStatusRefreshTask?.cancel()
                 activeStreamStatusRefreshTask = nil
-                viewModel.cancelStreamReconnectRetry()
-                viewModel.stopListening()
-                viewModel.suspendStreamForNavigation()
-                viewModel.cleanupPollingTasks()
+                ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
             }
             .onAppear {
                 foregroundRefreshTask?.cancel()
+                viewModel.cancelOwnedStreamStatusWatch()
                 foregroundRefreshTask = Task { @MainActor in
                     guard !Task.isCancelled, scenePhase == .active else { return }
                     await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
@@ -1317,6 +1315,9 @@ struct ChatView: View {
 
     private func prepareInitialAppearance() {
         viewModel.setShowsLiveActivityResponseExcerpts(showsLiveActivityResponseExcerpts)
+        guard ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
+            hasPreservedLiveRun: viewModel.hasPreservedLiveRun || viewModel.wasReusedFromOpenSessionStore
+        ) else { return }
         if loadsInitialMessages {
             viewModel.prepareInitialMessageLoad(modelContext: modelContext)
         }
@@ -1339,8 +1340,14 @@ struct ChatView: View {
     private func performInitialAsyncWork() async {
         guard !Task.isCancelled else { return }
 
-        if loadsInitialMessages {
+        if loadsInitialMessages,
+           ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
+            hasPreservedLiveRun: viewModel.hasPreservedLiveRun || viewModel.wasReusedFromOpenSessionStore
+           ) {
             await loadMessages(appliesInitialFocus: false)
+            guard !Task.isCancelled else { return }
+        } else {
+            await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
             guard !Task.isCancelled else { return }
         }
         if initialAttachments.isEmpty {
@@ -1862,7 +1869,6 @@ struct ChatView: View {
         case .background:
             foregroundRefreshTask?.cancel()
             foregroundRefreshTask = nil
-            viewModel.cancelStreamReconnectRetry()
             if viewModel.activeStreamID != nil {
                 beginResponseCompletionBackgroundTask()
             }
@@ -1881,7 +1887,6 @@ struct ChatView: View {
         case .inactive:
             foregroundRefreshTask?.cancel()
             foregroundRefreshTask = nil
-            viewModel.cancelStreamReconnectRetry()
         @unknown default:
             break
         }

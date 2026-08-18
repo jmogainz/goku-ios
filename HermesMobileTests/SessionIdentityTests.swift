@@ -51,6 +51,21 @@ final class SessionIdentityTests: XCTestCase {
         XCTAssertFalse(SessionRowView.isActiveStreaming(SessionSummary(sessionId: "blank-stream", activeStreamId: "   ")))
     }
 
+    func testSessionRowActiveStreamingUsesLiveOwnerWhenListPayloadIsStale() {
+        XCTAssertTrue(
+            SessionRowView.isActiveStreaming(
+                SessionSummary(sessionId: "owned-live", isStreaming: false),
+                liveOwnerSessionIDs: ["owned-live"]
+            )
+        )
+        XCTAssertFalse(
+            SessionRowView.isActiveStreaming(
+                SessionSummary(sessionId: "idle", isStreaming: false),
+                liveOwnerSessionIDs: ["owned-live"]
+            )
+        )
+    }
+
     func testSessionRowMetadataLabelUsesVisiblePartsAndWorkspaceBasename() {
         let session = SessionSummary(
             sessionId: "metadata",

@@ -82,4 +82,8 @@ enum ChatInitialAppearancePolicy {
     static func shouldBeginAsyncWork(hasCompletedAppearance: Bool) -> Bool {
         hasCompletedAppearance
     }
+
+    static func shouldReloadTranscriptOnAppear(hasPreservedLiveRun: Bool) -> Bool {
+        !hasPreservedLiveRun
+    }
 }
