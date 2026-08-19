@@ -211,6 +211,7 @@ enum TranscriptTurnClassifier {
 
     static func isUserTurnBoundary(_ message: ChatMessage) -> Bool {
         guard message.role == "user" else { return false }
+        guard ChatMarkerMessageClassifier.classify(message) == nil else { return false }
         return hasVisibleUserContent(message)
     }
 

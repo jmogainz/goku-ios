@@ -57,6 +57,8 @@ struct MarkerMessageCardView: View {
             return "checklist"
         case .compressionReference:
             return "star"
+        case .processWakeup:
+            return "terminal"
         }
     }
 

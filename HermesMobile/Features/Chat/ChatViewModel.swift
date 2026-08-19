@@ -236,6 +236,10 @@ final class ChatViewModel {
         activeStreamID != nil || !liveToolCalls.isEmpty || !liveReasoningText.isEmpty
     }
 
+    var hasPreservedTranscript: Bool {
+        !messages.isEmpty || !liveToolCalls.isEmpty || !liveReasoningText.isEmpty
+    }
+
     var isEstablishingConnection: Bool {
         isLoading && activeStreamID == nil && !isStartingChat
     }

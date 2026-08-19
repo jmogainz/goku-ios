@@ -83,7 +83,7 @@ enum ChatInitialAppearancePolicy {
         hasCompletedAppearance
     }
 
-    static func shouldReloadTranscriptOnAppear(hasPreservedLiveRun: Bool) -> Bool {
-        !hasPreservedLiveRun
+    static func shouldReloadTranscriptOnAppear(hasPreservedTranscript: Bool) -> Bool {
+        !hasPreservedTranscript
     }
 }

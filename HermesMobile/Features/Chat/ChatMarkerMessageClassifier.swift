@@ -11,6 +11,9 @@ enum ChatMarkerMessageKind: Equatable {
     /// session-level `compression_anchor_*` metadata — never produced by
     /// `classify`, which only sees literal marker messages.
     case compressionReference
+    /// Hermes injects background-process completions as role=user
+    /// (`source=process_wakeup`). Render as a system card, never a user bubble.
+    case processWakeup
 
     var title: String {
         switch self {
@@ -18,12 +21,15 @@ enum ChatMarkerMessageKind: Equatable {
             return String(localized: "Context compaction")
         case .preservedTaskList:
             return String(localized: "Preserved task list")
+        case .processWakeup:
+            return String(localized: "Background process")
         }
     }
 }
 
 enum ChatMarkerMessageClassifier {
     private static let preservedTaskListPrefix = "[your active task list was preserved across context compression]"
+    private static let processWakeupPrefix = "[important: background process"
     private static let contextCompactionPrefixes = ["[context compaction", "context compaction"]
 
     static func classify(_ message: ChatMessage) -> ChatMarkerMessageKind? {
@@ -33,6 +39,10 @@ enum ChatMarkerMessageClassifier {
 
         if role == "user", hasCaseInsensitivePrefix(text, preservedTaskListPrefix) {
             return .preservedTaskList
+        }
+
+        if role == "user", hasCaseInsensitivePrefix(text, processWakeupPrefix) {
+            return .processWakeup
         }
 
         if isContextCompactionText(text) {

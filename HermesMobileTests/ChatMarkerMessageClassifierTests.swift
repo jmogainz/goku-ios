@@ -77,6 +77,47 @@ final class ChatMarkerMessageClassifierTests: XCTestCase {
         XCTAssertNil(ChatMarkerMessageClassifier.classify(message))
     }
 
+    // MARK: - Process wakeup
+
+    func testBackgroundProcessCompletionIsASystemCardNotAUserBubble() {
+        let message = makeMessage(
+            role: "user",
+            content: """
+            [IMPORTANT: Background process proc_39c8cd3215a6 completed (exit_code=0).
+            Command: xcodebuild -project HermesMobile.xcodeproj
+            Output:
+            ** BUILD SUCCEEDED **
+            ]
+            """
+        )
+        XCTAssertEqual(ChatMarkerMessageClassifier.classify(message), .processWakeup)
+        XCTAssertFalse(TranscriptTurnClassifier.isUserTurnBoundary(message))
+    }
+
+    func testBackgroundProcessWatchMatchIsASystemCard() {
+        let message = makeMessage(
+            role: "user",
+            content: """
+            [IMPORTANT: Background process w1 matched watch pattern "ERROR".
+            Command: tail -f app.log
+            Matched output:
+            ERROR timeout
+            ]
+            """
+        )
+        XCTAssertEqual(ChatMarkerMessageClassifier.classify(message), .processWakeup)
+        XCTAssertFalse(TranscriptTurnClassifier.isUserTurnBoundary(message))
+    }
+
+    func testRealUserMessageAboutBackgroundProcessStaysAUserBubble() {
+        let message = makeMessage(
+            role: "user",
+            content: "Can you check that background process output from the last build?"
+        )
+        XCTAssertNil(ChatMarkerMessageClassifier.classify(message))
+        XCTAssertTrue(TranscriptTurnClassifier.isUserTurnBoundary(message))
+    }
+
     // MARK: - Card body
 
     func testCardBodyStripsPreservedTaskListMarker() {
