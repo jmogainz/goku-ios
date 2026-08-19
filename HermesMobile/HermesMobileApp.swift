@@ -87,9 +87,6 @@ private struct SidebarBrandLabView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 16) {
-                    GokuHeaderLogo()
-                        .frame(width: 132, alignment: .leading)
-
                     Spacer(minLength: 0)
 
                     HStack(spacing: 4) {

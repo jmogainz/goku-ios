@@ -12,11 +12,22 @@ final class AppIconChoiceTests: XCTestCase {
         XCTAssertEqual(AppIconChoice.resolved(from: "LegacyAlternateIcon"), .system)
     }
 
-    func testSidebarBrandUsesSimpleWordmark() {
-        XCTAssertEqual(GokuHeaderLogo.productName, "Goku")
-        XCTAssertEqual(GokuHeaderLogo.productDescriptor, "MOBILE AGENT")
-        XCTAssertEqual(GokuHeaderLogo.accessibilityLabelText, "Goku Mobile Agent")
+    func testSidebarHeaderHasNoProductWordmark() throws {
+        XCTAssertFalse(GokuHeaderLogo.showsProductWordmark)
         XCTAssertFalse(GokuHeaderLogo.showsPortraitMedallion)
+        XCTAssertTrue(GokuHeaderLogo.productName.isEmpty)
+        XCTAssertTrue(GokuHeaderLogo.productDescriptor.isEmpty)
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sessionListSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("HermesMobile/Features/SessionList/SessionListView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(sessionListSource.contains("MOBILE AGENT"))
+        XCTAssertFalse(sessionListSource.contains("Text(Self.productName)"))
+        XCTAssertFalse(sessionListSource.contains("GokuHeaderLogo()"))
     }
 
     func testPrivacyPolicyUsesGokuControlledPublicURL() {
