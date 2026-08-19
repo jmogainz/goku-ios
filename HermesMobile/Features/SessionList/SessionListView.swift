@@ -521,17 +521,7 @@ struct SessionListView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: searchChromeIsExpanded ? 0 : 16) {
-            GokuHeaderLogo()
-                .padding(.leading, searchChromeIsExpanded ? 0 : 9)
-                .frame(width: searchChromeIsExpanded ? 0 : 132, alignment: .leading)
-                .opacity(searchChromeIsExpanded ? 0 : 1)
-                .clipped()
-                .accessibilityHidden(searchChromeIsExpanded)
-
-            searchChrome
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
+        searchChrome
         .padding(.horizontal, 24)
         .padding(.top, 28)
         .overlay(alignment: .bottom) {
@@ -1337,34 +1327,14 @@ enum SessionListNewChatReturn {
 }
 
 struct GokuHeaderLogo: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.appColorPalette) private var palette
-
-    static let productName = "Goku"
-    static let productDescriptor = "MOBILE AGENT"
-    static let accessibilityLabelText = "Goku Mobile Agent"
+    static let productName = ""
+    static let productDescriptor = ""
+    static let accessibilityLabelText = ""
     static let showsPortraitMedallion = false
+    static let showsProductWordmark = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(Self.productName)
-                .font(.title3.weight(.black))
-                .fontDesign(.rounded)
-                .tracking(-0.35)
-                .foregroundStyle(.primary)
-
-            if !dynamicTypeSize.isAccessibilitySize {
-                Text(Self.productDescriptor)
-                    .font(.caption2.weight(.bold))
-                    .fontDesign(.rounded)
-                    .tracking(1)
-                    .foregroundStyle(GokuVisualTheme.brandAccent(for: colorScheme, palette: palette))
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabelText)
+        EmptyView()
     }
 }
 
@@ -1632,8 +1602,9 @@ private struct PendingNewChatView: View {
     }
 }
 
-#Preview("Goku Header Logo") {
-    GokuHeaderLogo()
+#Preview("Sessions Header") {
+    Color.clear
+        .frame(height: 80)
         .padding(24)
         .background(Color.black)
         .preferredColorScheme(.dark)
