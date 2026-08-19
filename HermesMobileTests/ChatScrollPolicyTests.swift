@@ -21,10 +21,16 @@ final class ChatScrollPolicyTests: XCTestCase {
 
     func testWarmLiveReopenSkipsBlockingTranscriptReload() {
         XCTAssertFalse(
-            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedLiveRun: true)
+            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedTranscript: true)
         )
         XCTAssertTrue(
-            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedLiveRun: false)
+            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedTranscript: false)
+        )
+    }
+
+    func testKnownStreamIDWithoutTranscriptStillReloadsHistory() {
+        XCTAssertTrue(
+            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(hasPreservedTranscript: false)
         )
     }
 

@@ -114,9 +114,10 @@ final class OpenChatSessionStoreTests: XCTestCase {
         )
         XCTAssertTrue(reopened === viewModel)
         XCTAssertTrue(reopened.hasPreservedLiveRun)
+        XCTAssertTrue(reopened.hasPreservedTranscript)
         XCTAssertFalse(
             ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
-                hasPreservedLiveRun: reopened.hasPreservedLiveRun
+                hasPreservedTranscript: reopened.hasPreservedTranscript
             )
         )
         XCTAssertEqual(reopened.activeStreamID, "stream-123")
@@ -167,6 +168,12 @@ final class OpenChatSessionStoreTests: XCTestCase {
         XCTAssertEqual(viewModel.activeStreamID, "stream-from-list")
         XCTAssertTrue(viewModel.isActiveStreamConnectionSuspended)
         XCTAssertTrue(viewModel.hasPreservedLiveRun)
+        XCTAssertFalse(viewModel.hasPreservedTranscript)
+        XCTAssertTrue(
+            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
+                hasPreservedTranscript: viewModel.hasPreservedTranscript
+            )
+        )
         XCTAssertFalse(viewModel.isEstablishingConnection)
     }
 

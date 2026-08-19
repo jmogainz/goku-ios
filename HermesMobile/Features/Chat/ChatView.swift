@@ -1318,7 +1318,7 @@ struct ChatView: View {
     private func prepareInitialAppearance() {
         viewModel.setShowsLiveActivityResponseExcerpts(showsLiveActivityResponseExcerpts)
         guard ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
-            hasPreservedLiveRun: viewModel.hasPreservedLiveRun || viewModel.wasReusedFromOpenSessionStore
+            hasPreservedTranscript: viewModel.hasPreservedTranscript
         ) else { return }
         if loadsInitialMessages {
             viewModel.prepareInitialMessageLoad(modelContext: modelContext)
@@ -1344,7 +1344,7 @@ struct ChatView: View {
 
         if loadsInitialMessages,
            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
-            hasPreservedLiveRun: viewModel.hasPreservedLiveRun || viewModel.wasReusedFromOpenSessionStore
+            hasPreservedTranscript: viewModel.hasPreservedTranscript
            ) {
             async let messages: Void = loadMessages(appliesInitialFocus: false, reconnectsAfterLoad: false)
             async let stream: Void = viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
