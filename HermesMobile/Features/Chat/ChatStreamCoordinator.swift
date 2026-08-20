@@ -374,9 +374,12 @@ final class ChatStreamCoordinator {
                 return
             }
             guard !Self.isCancellationError(error) else { return }
-            guard Self.shouldRetryReconnect(after: error),
-                  retryAttempt < Self.reconnectRetryLimit
-            else {
+            guard Self.shouldRetryReconnect(after: error) else {
+                delegate?.streamCoordinatorDidReceiveRecoveryError(error)
+                return
+            }
+            if retryAttempt >= Self.reconnectRetryLimit,
+               !CacheFallbackPolicy.isTransientBlip(error) {
                 delegate?.streamCoordinatorDidReceiveRecoveryError(error)
                 return
             }
@@ -399,7 +402,8 @@ final class ChatStreamCoordinator {
     ) {
         guard reconnectRetryTask == nil else { return }
         let baseDelay = max(timing.statusPollCooldown, 0.01)
-        let backoff = pow(2, Double(max(0, retryAttempt - 1)))
+        let boundedAttempt = min(retryAttempt, 4)
+        let backoff = pow(2, Double(max(0, boundedAttempt - 1)))
         let delayNanoseconds = UInt64(baseDelay * backoff * 1_000_000_000)
 
         reconnectRetryTask = Task { @MainActor [weak self] in
