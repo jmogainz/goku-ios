@@ -58,4 +58,58 @@ final class CacheFallbackPolicyTests: XCTestCase {
         XCTAssertTrue(CacheFallbackPolicy.shouldUseCache(for: URLError(.timedOut)))
         XCTAssertFalse(CacheFallbackPolicy.shouldUseCache(for: URLError(.badURL)))
     }
+
+    func testTransientBlipsAreNotAnnouncedAsServerOutages() {
+        let blips: [Error] = [
+            APIError.network(underlying: URLError(.networkConnectionLost)),
+            APIError.network(underlying: URLError(.cannotConnectToHost)),
+            APIError.network(underlying: URLError(.timedOut)),
+            URLError(.networkConnectionLost),
+            APIError.http(statusCode: 408, body: nil),
+            APIError.http(statusCode: 429, body: nil),
+            APIError.http(statusCode: 500, body: nil)
+        ]
+
+        for error in blips {
+            XCTAssertTrue(CacheFallbackPolicy.isTransientBlip(error), "\(error) should be a transient blip")
+            XCTAssertFalse(
+                CacheFallbackPolicy.shouldAnnounceAsServerOutage(error),
+                "\(error) should not claim the server is down"
+            )
+        }
+    }
+
+    func testConfirmedOutagesStillUseTheSetupBanner() {
+        let outages: [Error] = [
+            APIError.network(underlying: URLError(.cannotFindHost)),
+            APIError.network(underlying: URLError(.dnsLookupFailed)),
+            APIError.http(statusCode: 502, body: nil),
+            APIError.http(statusCode: 503, body: nil),
+            APIError.http(statusCode: 504, body: nil)
+        ]
+
+        for error in outages {
+            XCTAssertTrue(
+                CacheFallbackPolicy.shouldAnnounceAsServerOutage(error),
+                "\(error) should still be treated as a real outage"
+            )
+        }
+    }
+
+    func testComposerKeepsQuietOnTransientBlips() {
+        let error = APIError.network(underlying: URLError(.networkConnectionLost))
+        XCTAssertNil(CacheFallbackPolicy.composerBannerMessage(for: error))
+    }
+
+    func testSendUsesQuietRetryCopyForTransientBlips() {
+        let error = APIError.network(underlying: URLError(.cannotConnectToHost))
+        XCTAssertEqual(
+            CacheFallbackPolicy.sendBannerMessage(for: error),
+            "Couldn't reach the server. Try again."
+        )
+        XCTAssertNotEqual(
+            CacheFallbackPolicy.sendBannerMessage(for: error),
+            "Could not connect to the server. Check that hermes-webui is running and the tunnel is connected."
+        )
+    }
 }

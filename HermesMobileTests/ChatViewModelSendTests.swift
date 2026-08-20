@@ -31,6 +31,56 @@ final class ChatViewModelSendTests: XCTestCase {
     }
 
     @MainActor
+    func testComposerConfigTransientBlipDoesNotShowServerDownBanner() async throws {
+        let viewModel = try makeViewModel(
+            sessionSummary: makeSession(model: "gpt-5.6-luna", modelProvider: "openai-codex")
+        ) { request in
+            switch request.url?.path {
+            case "/api/profiles", "/api/commands":
+                throw URLError(.networkConnectionLost)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        await viewModel.loadComposerConfiguration()
+
+        XCTAssertNil(viewModel.composerConfigurationErrorMessage)
+        XCTAssertNil(viewModel.sendErrorMessage)
+    }
+
+    @MainActor
+    func testTransientStartChatFailureDoesNotBlameTheTunnel() async throws {
+        let viewModel = try makeViewModel { request in
+            XCTAssertEqual(request.url?.path, "/api/chat/start")
+            throw URLError(.cannotConnectToHost)
+        }
+
+        let didStart = await viewModel.sendMessage("Still here?")
+
+        XCTAssertFalse(didStart)
+        XCTAssertEqual(viewModel.sendErrorMessage, "Couldn't reach the server. Try again.")
+        XCTAssertFalse(
+            viewModel.sendErrorMessage?.contains("hermes-webui is running") == true
+        )
+    }
+
+    @MainActor
+    func testTransientStreamRecoveryDoesNotShowServerDownBanner() async throws {
+        let viewModel = try makeViewModel { request in
+            XCTFail("Recovery presentation should not hit the network.")
+            return apiTestJSONResponse("{}", for: request)
+        }
+
+        viewModel.streamCoordinatorDidReceiveRecoveryError(
+            APIError.network(underlying: URLError(.networkConnectionLost))
+        )
+
+        XCTAssertNil(viewModel.sendErrorMessage)
+    }
+
+    @MainActor
     func testListenCreatesSpeechSynthesizerOnlyWhenRequested() async throws {
         let speechSynthesizer = SpySpeechSynthesizer()
         var createdSynthesizers = 0

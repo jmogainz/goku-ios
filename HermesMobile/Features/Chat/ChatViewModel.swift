@@ -835,7 +835,7 @@ final class ChatViewModel {
 
             if let error = result.configurationError {
                 lastError = error
-                composerConfigurationErrorMessage = error.localizedDescription
+                composerConfigurationErrorMessage = CacheFallbackPolicy.composerBannerMessage(for: error)
             }
         } while needsComposerConfigurationReload
     }
@@ -2261,7 +2261,7 @@ final class ChatViewModel {
                 return false
             }
             lastError = error
-            sendErrorMessage = error.localizedDescription
+            sendErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
             rollbackOptimisticMessage(id: localMessageID)
             cacheCurrentMessages(sessionID: sessionID, modelContext: modelContext)
             restorePendingAttachments(attachmentsToRestoreOnFailure)
@@ -5117,6 +5117,7 @@ extension ChatViewModel: ChatStreamCoordinatorDelegate {
 
     func streamCoordinatorDidReceiveRecoveryError(_ error: Error) {
         lastError = error
+        guard CacheFallbackPolicy.shouldAnnounceAsServerOutage(error) else { return }
         sendErrorMessage = error.localizedDescription
     }
 
