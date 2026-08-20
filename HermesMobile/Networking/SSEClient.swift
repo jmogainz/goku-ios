@@ -91,6 +91,9 @@ enum SSEEvent: Equatable {
     case streamEnd
     case cancelled
     case error(String)
+    /// WebUI journal replay bookkeeping: the live SSE channel is gone.
+    /// Not a user-facing composer error — reconnect or finish quietly.
+    case lostWorkerBookkeeping(String)
     case transportError(String)
     case heartbeat
     case ignored
@@ -313,7 +316,11 @@ struct SSEEventDecoder {
             guard let payload = decodePayload(ErrorPayload.self, eventType: eventType, from: eventData, decoder: decoder) else {
                 return .error(String(localized: "The stream returned a malformed error event."))
             }
-            return .error(payload.error ?? payload.message ?? String(localized: "The stream returned an error."))
+            let message = payload.error ?? payload.message ?? String(localized: "The stream returned an error.")
+            if payload.isLostWorkerBookkeeping {
+                return .lostWorkerBookkeeping(message)
+            }
+            return .error(message)
         default:
             logger.debug("Ignoring unknown SSE event type '\(eventType, privacy: .public)'.")
             return .ignored
@@ -441,6 +448,24 @@ private struct ReasoningPayload: Decodable {
 private struct ErrorPayload: Decodable {
     let error: String?
     let message: String?
+    let type: String?
+    let recoveryControl: Bool?
+    let terminalState: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case message
+        case type
+        case recoveryControl = "recovery_control"
+        case terminalState = "terminal_state"
+    }
+
+    var isLostWorkerBookkeeping: Bool {
+        if recoveryControl == true { return true }
+        if terminalState == "lost-worker-bookkeeping" { return true }
+        let text = (message ?? error ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return text.hasPrefix("the live worker stopped before this run finished")
+    }
 }
 
 struct DoneStreamEvent: Equatable {
