@@ -2048,6 +2048,46 @@ final class ChatViewModelSendTests: XCTestCase {
     }
 
     @MainActor
+    func testInitialLoadKeepsTheServerWindowBoundedWithoutRenderableExpansion() async throws {
+        let viewModel = try makeViewModel { request in
+            XCTAssertEqual(request.url?.path, "/api/session")
+            let query = Dictionary(
+                uniqueKeysWithValues: (URLComponents(
+                    url: try XCTUnwrap(request.url),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems ?? []).map { ($0.name, $0.value) }
+            )
+            XCTAssertEqual(query["msg_limit"], "50")
+            XCTAssertNil(query["msg_before"])
+            XCTAssertNil(query["expand_renderable"])
+
+            return apiTestJSONResponse("""
+            {
+              "session": {
+                "session_id": "session-abc",
+                "message_count": 100,
+                "messages_offset": 50,
+                "messages_truncated": true,
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Recent message",
+                    "timestamp": 1770000100,
+                    "message_id": "recent-user"
+                  }
+                ]
+              }
+            }
+            """, for: request)
+        }
+
+        await viewModel.loadMessages()
+
+        XCTAssertEqual(viewModel.messages.map(\.messageId), ["recent-user"])
+        XCTAssertTrue(viewModel.hasOlderMessages)
+    }
+
+    @MainActor
     func testLoadMessagesDuringActiveStreamPreservesLiveStateWhenServerSnapshotIsStale() async throws {
         let streamClient = SpySSEStreamingClient()
         let viewModel = try makeViewModel(streamClient: streamClient) { request in

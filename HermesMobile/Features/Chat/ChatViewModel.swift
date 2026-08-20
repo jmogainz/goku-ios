@@ -1364,10 +1364,7 @@ final class ChatViewModel {
             let response = try await client.session(
                 id: sessionID,
                 includeMessages: true,
-                messageLimit: Self.messagePageLimit,
-                // Cold load only: widen the window to renderable-dense (upstream #3790) so a
-                // tool-heavy session opens populated. "Load earlier" keeps the raw cap.
-                expandRenderable: true
+                messageLimit: Self.messagePageLimit
             )
             guard messageLoadGeneration == generation else { return }
             guard allowApplyDuringLocalStart || (!isStartingChat && !isEditingMessage && !isRegeneratingMessage) else { return }
