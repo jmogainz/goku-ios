@@ -146,35 +146,6 @@ final class ChatScrollPolicyTests: XCTestCase {
         )
     }
 
-    func testReturningToBottomClearsFollowCooldown() {
-        XCTAssertTrue(
-            ChatScrollPolicy.shouldClearFollowCooldownWhenNearBottom(isNearBottom: true)
-        )
-        XCTAssertFalse(
-            ChatScrollPolicy.shouldClearFollowCooldownWhenNearBottom(isNearBottom: false)
-        )
-    }
-
-    func testOverscrolledTranscriptShouldSnapBackWhenIdle() {
-        XCTAssertTrue(
-            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
-                distanceFromBottom: -40,
-                isUserInteracting: false
-            )
-        )
-        XCTAssertFalse(
-            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
-                distanceFromBottom: -40,
-                isUserInteracting: true
-            )
-        )
-        XCTAssertFalse(
-            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
-                distanceFromBottom: 8,
-                isUserInteracting: false
-            )
-        )
-    }
 
     func testFollowRejoinShouldSnapWithoutAnimation() {
         XCTAssertTrue(
@@ -243,30 +214,6 @@ final class ChatScrollPolicyTests: XCTestCase {
         XCTAssertFalse(ChatTranscriptRestorePolicy.shouldProgrammaticallyRestoreOnAppear(hasMessages: false))
     }
 
-    func testSignedDistanceIsNegativeWhenTheViewportIsPastTheLastRow() {
-        XCTAssertEqual(
-            ChatScrollPolicy.signedDistanceFromBottom(currentOffset: 1_200, maximumOffset: 1_000),
-            -200
-        )
-        XCTAssertEqual(
-            ChatScrollPolicy.signedDistanceFromBottom(currentOffset: 1_000, maximumOffset: 1_000),
-            0
-        )
-        XCTAssertEqual(
-            ChatScrollPolicy.signedDistanceFromBottom(currentOffset: 900, maximumOffset: 1_000),
-            100
-        )
-    }
-
-    func testShortTranscriptDoesNotCountAsOverscroll() {
-        XCTAssertFalse(
-            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
-                distanceFromBottom: -600,
-                isUserInteracting: false,
-                maximumOffset: -400
-            )
-        )
-    }
 
     func testStreamingFlushMustNotInvalidateTheTranscriptView() {
         XCTAssertFalse(ChatScrollPolicy.shouldBumpScrollTriggerForStreamingFlush())
@@ -319,4 +266,5 @@ final class ChatScrollPolicyTests: XCTestCase {
             )
         )
     }
+
 }

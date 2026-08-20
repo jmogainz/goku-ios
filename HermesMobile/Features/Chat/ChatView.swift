@@ -289,7 +289,6 @@ struct ChatView: View {
     @State private var followRejoinScrollToken = 0
     @State private var restoreScrollToken = 0
     @State private var didRequestTranscriptRestore = false
-    @State private var scrolledMessageID: String?
     @State private var isScrolledNearBottom = true
     @State private var isReadingOlderTranscript = false
     @State private var shouldFollowLatestMessage = true
@@ -506,9 +505,11 @@ struct ChatView: View {
         // The composer flips wholesale with the transcript under the RTL
         // toggle (#259): input, placeholder, and chrome mirror together.
         .environment(\.layoutDirection, chatLayoutDirection)
-        .onChange(of: draftMessage) {
-            // Persist every edit, not only navigation/background transitions.
-            // A force-quit while the keyboard is up must still preserve the draft.
+        .task(id: draftMessage) {
+            // Debounce persistence. UserDefaults is synchronous and doing a
+            // write for every keystroke makes the main-actor composer hitch.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
             persistComposerDraft()
         }
         .background(
@@ -1212,8 +1213,7 @@ struct ChatView: View {
             },
             restoreScrollToken: restoreScrollToken,
             restoreTarget: viewModel.transcriptRestoreTarget,
-            followRejoinScrollToken: followRejoinScrollToken,
-            scrolledMessageID: $scrolledMessageID
+            followRejoinScrollToken: followRejoinScrollToken
         )
     }
 
@@ -2180,7 +2180,10 @@ struct ChatView: View {
     private func persistTranscriptRestore() {
         viewModel.rememberTranscriptRestorePoint(
             followingLatest: shouldFollowLatestMessage,
-            visibleMessageID: scrolledMessageID == bottomAnchorID ? nil : scrolledMessageID
+            // Keep high-frequency scroll position out of ChatView state. The
+            // ScrollViewReader restore path still handles latest-content
+            // restoration without a per-scroll binding.
+            visibleMessageID: nil
         )
     }
 
@@ -2210,22 +2213,7 @@ struct ChatView: View {
             userScrollCooldownUntil = ChatScrollPolicy.cooldownDeadline()
         }
 
-        if ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
-            distanceFromBottom: metrics.distanceFromBottom,
-            isUserInteracting: metrics.isUserInteracting,
-            maximumOffset: metrics.maximumOffset
-        ) {
-            shouldFollowLatestMessage = true
-            isReadingOlderTranscript = false
-            followRejoinScrollToken += 1
-            userScrollCooldownUntil = nil
-            return
-        }
-
         if isNearBottom {
-            if ChatScrollPolicy.shouldClearFollowCooldownWhenNearBottom(isNearBottom: true) {
-                userScrollCooldownUntil = nil
-            }
             if ChatScrollPolicy.shouldSnapWhenRejoiningLatest(
                 wasFollowingLatest: shouldFollowLatestMessage,
                 isNearBottom: true
@@ -2242,7 +2230,7 @@ struct ChatView: View {
             shouldFollowLatestMessage = false
             if !isReadingOlderTranscript,
                ChatScrollPolicy.shouldEnterReadingOlder(
-                   distanceFromBottom: max(0, metrics.distanceFromBottom),
+                   distanceFromBottom: metrics.distanceFromBottom,
                    isStreaming: isStreaming
                ) {
                 withAnimation(ChatMotion.quickState(reduceMotion: reduceMotion)) {

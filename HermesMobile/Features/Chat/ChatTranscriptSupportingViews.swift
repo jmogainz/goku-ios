@@ -4,7 +4,6 @@ import UIKit
 struct ChatScrollMetrics: Equatable {
     let distanceFromBottom: CGFloat
     let isUserInteracting: Bool
-    let maximumOffset: CGFloat
 }
 
 struct ChatScrollObserver: UIViewRepresentable {
@@ -144,14 +143,14 @@ struct ChatScrollObserver: UIViewRepresentable {
 
             let currentOffset = scrollView.contentOffset.y + inset.top
             let maximumOffset = scrollView.contentSize.height - visibleHeight
-            let distanceFromBottom = ChatScrollPolicy.signedDistanceFromBottom(
-                currentOffset: currentOffset,
-                maximumOffset: maximumOffset
-            )
+            // Clamp short-content bounce/overscroll out of the app-owned
+            // follow state. Signed distance made every content-size KVO pass
+            // look like a new recovery request and could feed scrollTo back
+            // into this observer repeatedly.
+            let distanceFromBottom = max(0, maximumOffset - currentOffset)
             let metrics = ChatScrollMetrics(
                 distanceFromBottom: distanceFromBottom,
-                isUserInteracting: scrollView.isDragging || scrollView.isTracking || scrollView.isDecelerating,
-                maximumOffset: maximumOffset
+                isUserInteracting: scrollView.isDragging || scrollView.isTracking || scrollView.isDecelerating
             )
             guard metrics != lastMetrics else { return }
 

@@ -100,27 +100,6 @@ enum ChatScrollPolicy {
         return false
     }
 
-    static func shouldClearFollowCooldownWhenNearBottom(isNearBottom: Bool) -> Bool {
-        isNearBottom
-    }
-
-    /// Negative distance means the viewport is past the last row (blank canvas).
-    /// Snap back unless the user is still touching the scroll view.
-    static let overscrollRecoveryThreshold: CGFloat = 24
-
-    static func shouldRecoverOverscrolledTranscript(
-        distanceFromBottom: CGFloat,
-        isUserInteracting: Bool,
-        maximumOffset: CGFloat = .greatestFiniteMagnitude
-    ) -> Bool {
-        maximumOffset > 0 && !isUserInteracting && distanceFromBottom < -overscrollRecoveryThreshold
-    }
-
-    /// Keep the sign. `max(0, …)` hid the blank-canvas overscroll Jacob reported.
-    static func signedDistanceFromBottom(currentOffset: CGFloat, maximumOffset: CGFloat) -> CGFloat {
-        maximumOffset - currentOffset
-    }
-
     static func shouldSnapWhenRejoiningLatest(
         wasFollowingLatest: Bool,
         isNearBottom: Bool
