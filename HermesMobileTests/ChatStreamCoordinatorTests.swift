@@ -215,7 +215,7 @@ final class ChatStreamCoordinatorTests: APIClientTestCase {
     }
 
     @MainActor
-    func testReconnectKeepsRetryingTransientFailuresWithoutReportingOutage() async throws {
+    func testReconnectBoundsTransientFailuresWithoutReportingOutage() async throws {
         let streamClient = CoordinatorSpySSEStreamingClient()
         let delegate = CoordinatorDelegateSpy()
         var statusRequestCount = 0
@@ -239,17 +239,15 @@ final class ChatStreamCoordinatorTests: APIClientTestCase {
         coordinator.suspendActiveStreamConnection()
 
         await coordinator.reconnectIfNeeded()
-        try await Task.sleep(nanoseconds: 400_000_000)
+        try await waitUntil { statusRequestCount == 4 }
+        try await Task.sleep(nanoseconds: 200_000_000)
         coordinator.cancelReconnectRetry()
 
-        XCTAssertGreaterThanOrEqual(statusRequestCount, 2)
+        // Initial probe + three retries, then stop. The next lifecycle/foreground
+        // event may explicitly start a fresh recovery attempt.
+        XCTAssertEqual(statusRequestCount, 4)
         XCTAssertTrue(delegate.recoveryErrors.isEmpty)
         XCTAssertTrue(coordinator.isConnectionSuspended)
-        XCTAssertFalse(
-            delegate.recoveryErrors.contains {
-                $0.contains("hermes-webui is running")
-            }
-        )
     }
 
     @MainActor

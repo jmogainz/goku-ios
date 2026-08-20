@@ -378,9 +378,10 @@ final class ChatStreamCoordinator {
                 delegate?.streamCoordinatorDidReceiveRecoveryError(error)
                 return
             }
-            if retryAttempt >= Self.reconnectRetryLimit,
-               !CacheFallbackPolicy.isTransientBlip(error) {
-                delegate?.streamCoordinatorDidReceiveRecoveryError(error)
+            if retryAttempt >= Self.reconnectRetryLimit {
+                if !CacheFallbackPolicy.isTransientBlip(error) {
+                    delegate?.streamCoordinatorDidReceiveRecoveryError(error)
+                }
                 return
             }
             scheduleReconnectRetry(

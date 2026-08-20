@@ -74,6 +74,21 @@ final class StreamingMarkdownBlockSplitterTests: XCTestCase {
         XCTAssertTrue(segments.stableChunks.isEmpty)
         XCTAssertEqual(segments.activeMarkdown, "Only this growing sentence")
     }
+
+    func testManyCompletedParagraphsKeepStableChunkCountBounded() {
+        let text = (0..<500)
+            .map { "Paragraph \($0) is complete.\n\n" }
+            .joined()
+            + "Still streaming"
+
+        let segments = StreamingMarkdownBlockSplitter.split(text)
+
+        XCTAssertLessThan(
+            segments.stableChunks.count,
+            StreamingMarkdownBlockSplitter.maxSemanticStableChunkCount + 16
+        )
+        XCTAssertTrue(segments.activeMarkdown.contains("Still streaming"))
+    }
 }
 
 /// Width resolution for chat markdown table cells (issue #233). The layout

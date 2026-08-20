@@ -80,7 +80,6 @@ struct ChatTranscriptView: View {
     var restoreScrollToken: Int = 0
     var restoreTarget: ChatTranscriptRestoreTarget = .latest
     var followRejoinScrollToken: Int = 0
-    var scrolledMessageID: Binding<String?> = .constant(nil)
 
     var body: some View {
         if isLoading && messages.isEmpty && clarificationPrompt == nil {
@@ -135,7 +134,6 @@ struct ChatTranscriptView: View {
                         ),
                         for: .sizeChanges
                     )
-                    .scrollPosition(id: scrolledMessageID)
                     .frame(width: viewportWidth)
                     .refreshable {
                         if hasOlderMessages {
@@ -291,7 +289,6 @@ struct ChatTranscriptView: View {
                 .id(bottomAnchorID)
                 .allowsHitTesting(false)
         }
-        .scrollTargetLayout()
         .padding(.top, 16)
         .frame(width: contentWidth, alignment: .leading)
         .padding(.horizontal, transcriptHorizontalPadding)
