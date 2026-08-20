@@ -741,6 +741,18 @@ final class SSEClientTests: XCTestCase {
         XCTAssertEqual(event, .error("The stream returned an error."))
     }
 
+    func testLostWorkerBookkeepingAppErrorIsNotAComposerError() {
+        let event = SSEEventDecoder.decode(
+            eventType: "apperror",
+            data: #"{"type":"interrupted","recovery_control":true,"message":"The live worker stopped before this run finished.","hint":"The transcript was restored to the last journaled event. Start a new turn if you still need the task to continue.","terminal_state":"lost-worker-bookkeeping"}"#
+        )
+
+        XCTAssertEqual(
+            event,
+            .lostWorkerBookkeeping("The live worker stopped before this run finished.")
+        )
+    }
+
     func testMalformedAppErrorPayloadSurfacesExplicitError() {
         let event = SSEEventDecoder.decode(eventType: "apperror", data: "{")
 

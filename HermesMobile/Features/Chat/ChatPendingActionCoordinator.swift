@@ -281,7 +281,7 @@ final class ChatPendingActionCoordinator {
         switch event {
         case .approvalPending(let update):
             applyApprovalUpdate(update, sessionID: sessionID)
-        case .transportError, .error:
+        case .transportError, .error, .lostWorkerBookkeeping:
             startApprovalFallbackPolling(sessionID: sessionID)
         case .token, .interimAssistant, .reasoning, .toolStarted, .toolCompleted, .title, .metering, .done, .clarificationPending,
              .pendingSteerLeftover, .streamEnd, .cancelled, .heartbeat, .ignored:
@@ -387,7 +387,7 @@ final class ChatPendingActionCoordinator {
                     sessionID: sessionID
                 )
             }
-        case .transportError, .error:
+        case .transportError, .error, .lostWorkerBookkeeping:
             startClarificationFallbackPolling(sessionID: sessionID)
         case .token, .interimAssistant, .reasoning, .toolStarted, .toolCompleted, .title, .metering, .done,
              .pendingSteerLeftover, .streamEnd, .cancelled, .heartbeat, .ignored:

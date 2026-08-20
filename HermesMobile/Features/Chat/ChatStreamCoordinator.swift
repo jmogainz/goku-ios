@@ -106,6 +106,9 @@ final class ChatStreamCoordinator {
     // transcript load so a concurrent cancel/completion during the load can't be
     // double-finalized (PR #266 review #2).
     private var runGeneration = 0
+    /// Same-stream journal replay already emitted lost-worker bookkeeping.
+    /// A second copy must not reopen SSE (that just re-emits the red banner).
+    private var lostWorkerBookkeepingStreamID: String?
 
     init(
         client: APIClient,
@@ -158,6 +161,9 @@ final class ChatStreamCoordinator {
         hasCompletedCurrentResponse = false
         liveTokensPerSecond = nil
         runGeneration &+= 1
+        if activeStreamID != streamID {
+            lostWorkerBookkeepingStreamID = nil
+        }
         activeStreamID = streamID
         isConnectionSuspended = false
         if replayAfterSeq == nil {
@@ -654,6 +660,18 @@ final class ChatStreamCoordinator {
             }
             liveActivityManager.end(status: .failed, activity: String(localized: "Response failed"), errorSummary: nil)
             finishStream()
+        case .lostWorkerBookkeeping:
+            // Journal replay already painted. The live SSE socket is gone.
+            // Do not put WebUI bookkeeping in the composer as a red error.
+            if lostWorkerBookkeepingStreamID == activeStreamID {
+                if !hasCompletedCurrentResponse {
+                    liveActivityManager.end(status: .complete, activity: String(localized: "Response complete"), errorSummary: nil)
+                }
+                finishStream()
+            } else {
+                lostWorkerBookkeepingStreamID = activeStreamID
+                handleTransportError("lost-worker-bookkeeping")
+            }
         case .transportError(let message):
             handleTransportError(message)
         case .heartbeat:

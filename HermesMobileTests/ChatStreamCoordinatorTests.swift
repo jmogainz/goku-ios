@@ -1081,6 +1081,27 @@ final class ChatStreamCoordinatorTests: APIClientTestCase {
     }
 
     @MainActor
+    func testLostWorkerBookkeepingDoesNotSurfaceComposerError() {
+        let streamClient = CoordinatorSpySSEStreamingClient()
+        let liveActivityManager = CoordinatorSpyLiveActivityManager()
+        let delegate = CoordinatorDelegateSpy()
+        let coordinator = makeCoordinator(
+            streamClient: streamClient,
+            liveActivityManager: liveActivityManager,
+            delegate: delegate
+        )
+
+        coordinator.start(streamID: "stream-lost-worker")
+        streamClient.emit(SSEEventDecoder.decode(
+            eventType: "apperror",
+            data: #"{"type":"interrupted","recovery_control":true,"message":"The live worker stopped before this run finished.","terminal_state":"lost-worker-bookkeeping"}"#
+        ))
+
+        XCTAssertTrue(delegate.errorMessages.isEmpty)
+        XCTAssertNotEqual(liveActivityManager.ends.last?.status, .failed)
+    }
+
+    @MainActor
     private func makeCoordinator(
         streamClient: CoordinatorSpySSEStreamingClient? = nil,
         liveActivityManager: CoordinatorSpyLiveActivityManager? = nil,
