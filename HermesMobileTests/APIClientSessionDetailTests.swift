@@ -47,7 +47,7 @@ final class APIClientSessionDetailTests: APIClientTestCase {
         XCTAssertEqual(response.session?.messagesOffset, 25)
     }
 
-    func testSessionColdLoadSendsExpandRenderableFlag() async throws {
+    func testSessionCanSendExplicitRenderableExpansionCompatibilityFlag() async throws {
         let client = makeClient { request in
             let components = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
             let query = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value) })

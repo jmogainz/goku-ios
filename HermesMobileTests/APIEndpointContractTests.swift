@@ -43,7 +43,7 @@ final class ContractReadinessTests: XCTestCase {
                 query: ["session_id": "session-123", "messages": "1", "msg_limit": "50", "msg_before": "100"]
             ),
             .init(
-                name: "session detail cold load expand_renderable",
+                name: "session detail explicit expand_renderable compatibility flag",
                 method: "GET",
                 endpoint: .session(id: "session-123", includeMessages: true, messageLimit: 50, messageBefore: nil, expandRenderable: true),
                 path: "/api/session",
