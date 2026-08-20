@@ -476,6 +476,25 @@ enum ChatActiveRunStatusPolicy {
     }
 }
 
+enum ChatConnectionStatusPolicy {
+    /// Connecting… is a last-resort explanation, not a default first-open state.
+    static let visibleDelay: TimeInterval = 1.25
+
+    static func shouldShowConnecting(
+        isLoading: Bool,
+        hasPaintedTranscript: Bool,
+        hasActiveStream: Bool,
+        isStartingChat: Bool,
+        isVisiblySlow: Bool
+    ) -> Bool {
+        isLoading
+            && isVisiblySlow
+            && !hasPaintedTranscript
+            && !hasActiveStream
+            && !isStartingChat
+    }
+}
+
 enum ResponseCompletionNotificationPolicy {
     /// Fire a "response complete" notification when the user almost certainly isn't
     /// watching: notifications are enabled + permitted, the run finished normally,

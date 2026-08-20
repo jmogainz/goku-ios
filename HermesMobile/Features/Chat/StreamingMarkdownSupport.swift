@@ -11,8 +11,8 @@ struct StreamingMarkdownBlockSegments: Equatable {
 }
 
 enum StreamingMarkdownBlockSplitter {
-    static let stableChunkTargetCharacterCount = 6_000
-
+    /// A completed semantic Markdown block is safe to freeze. The active tail
+    /// remains the only block MarkdownUI reparses while tokens arrive.
     static func split(_ text: String) -> StreamingMarkdownBlockSegments {
         var lineStart = text.startIndex
         var chunkStart = text.startIndex
@@ -58,8 +58,10 @@ enum StreamingMarkdownBlockSplitter {
         from start: String.Index,
         to boundary: String.Index
     ) -> Bool {
-        guard boundary < text.endIndex else { return false }
-        return text.distance(from: start, to: boundary) >= stableChunkTargetCharacterCount
+        // `boundary` is a blank-line, heading, or closed-fence boundary. Once
+        // there is content after it, that block cannot change as the live tail
+        // grows, so keep it out of the hot MarkdownUI layout path.
+        boundary > start && boundary < text.endIndex
     }
 
     private static func appendChunk(

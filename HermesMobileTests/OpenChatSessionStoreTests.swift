@@ -177,13 +177,16 @@ final class OpenChatSessionStoreTests: XCTestCase {
         XCTAssertFalse(viewModel.isEstablishingConnection)
     }
 
-    func testColdOpenWithoutKnownStreamReportsEstablishingConnection() throws {
+    func testColdOpenWithoutKnownStreamDoesNotFlashConnectingOnCachePaint() throws {
         let viewModel = try makeViewModel(sessionID: "session-abc")
         viewModel.markConversationConnectionInProgress()
 
         XCTAssertNil(viewModel.activeStreamID)
-        XCTAssertTrue(viewModel.isEstablishingConnection)
         XCTAssertTrue(viewModel.isLoading)
+        XCTAssertFalse(viewModel.isEstablishingConnection)
+
+        viewModel.markConnectionVisiblySlowForTesting()
+        XCTAssertTrue(viewModel.isEstablishingConnection)
     }
 
     func testKnownListStreamReconnectsWithoutWaitingOnSessionFetch() async throws {
@@ -221,6 +224,34 @@ final class OpenChatSessionStoreTests: XCTestCase {
         XCTAssertEqual(streamClient.startedURLs.count, 1)
         XCTAssertEqual(viewModel.activeStreamID, "stream-from-list")
         XCTAssertFalse(viewModel.isActiveStreamConnectionSuspended)
+    }
+
+    @MainActor
+    func testRememberedRestorePointSurvivesLeaveAndReopen() throws {
+        let viewModel = try makeViewModel(sessionID: "session-abc")
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        _ = OpenChatSessionStore.shared.adoptedViewModel(
+            session: SessionSummary(sessionId: "session-abc"),
+            server: server,
+            creating: viewModel
+        )
+
+        viewModel.rememberTranscriptRestorePoint(
+            followingLatest: false,
+            visibleMessageID: "msg-where-i-left"
+        )
+
+        let reopened = OpenChatSessionStore.shared.viewModel(
+            session: SessionSummary(sessionId: "session-abc"),
+            server: server
+        )
+
+        XCTAssertTrue(reopened === viewModel)
+        XCTAssertEqual(
+            reopened.transcriptRestoreTarget,
+            .message(id: "msg-where-i-left")
+        )
+        XCTAssertFalse(reopened.savedFollowingLatest)
     }
 
     @MainActor

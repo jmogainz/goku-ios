@@ -132,6 +132,12 @@ final class ChatStreamCoordinator {
         recoveryState = .checking
     }
 
+    func restoreLastEventID(_ rawEventID: String?) {
+        let eventID = rawEventID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let eventID, !eventID.isEmpty else { return }
+        lastEventID = eventID
+    }
+
     func attach(delegate: any ChatStreamCoordinatorDelegate) {
         self.delegate = delegate
     }

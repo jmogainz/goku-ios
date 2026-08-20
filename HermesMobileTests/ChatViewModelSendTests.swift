@@ -1885,28 +1885,20 @@ final class ChatViewModelSendTests: XCTestCase {
         await viewModel.awaitPendingStreamingScrollTriggerForTesting()
         let initialTrigger = viewModel.streamingScrollTrigger
 
-        // Burst 1: 20 rapid tokens batch behind a single coalesced flush. Nothing has
-        // scrolled yet at this synchronous point — no await has elapsed since the
-        // burst, regardless of CPU load.
+        // Burst 1: 20 rapid tokens batch behind a single coalesced flush. The
+        // transcript follow is size-change only — token flushes must not bump
+        // streamingScrollTrigger or ChatTranscriptView re-evaluates every row.
         for index in 0..<20 {
             streamClient.emit(.token("token-\(index) "))
         }
         XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger)
 
-        // Flushing the batch schedules exactly one (still-deferred) scroll trigger;
-        // draining it advances the trigger by exactly one — not 20 — proving the
-        // 20-token burst coalesced into a single scroll.
         viewModel.flushPendingStreamingContent()
         XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger)
         await viewModel.awaitPendingStreamingScrollTriggerForTesting()
-        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger + 1)
+        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger)
         XCTAssertTrue(viewModel.messages.last?.content?.hasPrefix("token-0 token-1") == true)
 
-        // Burst 2: a distinct, heterogeneous reasoning + tool-start burst. Flushing
-        // the batched reasoning while the tool-start scroll trigger is still pending
-        // exercises the production coalescing guard (one pending trigger at a time),
-        // so the whole burst collapses into exactly one more increment regardless of
-        // task scheduling order.
         streamClient.emit(.reasoning("Check the next step."))
         streamClient.emit(.toolStarted(ToolStreamEvent(
             eventType: "tool.started",
@@ -1916,11 +1908,11 @@ final class ChatViewModelSendTests: XCTestCase {
             duration: nil,
             isError: nil
         )))
-        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger + 1)
+        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger)
         viewModel.flushPendingStreamingContent()
-        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger + 1)
+        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger)
         await viewModel.awaitPendingStreamingScrollTriggerForTesting()
-        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger + 2)
+        XCTAssertEqual(viewModel.streamingScrollTrigger, initialTrigger)
     }
 
     @MainActor
@@ -3279,7 +3271,7 @@ final class ChatViewModelSendTests: XCTestCase {
         viewModel.prepareInitialMessageLoad(modelContext: context)
 
         XCTAssertEqual(viewModel.messages.compactMap(\.content), ["Cached question", "Cached answer"])
-        XCTAssertTrue(viewModel.isLoading)
+        XCTAssertFalse(viewModel.isLoading)
         XCTAssertFalse(viewModel.isViewingCachedData)
     }
 
@@ -3358,7 +3350,7 @@ final class ChatViewModelSendTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 50)
         XCTAssertEqual(viewModel.messages.first?.content, "Cached message 25")
         XCTAssertEqual(viewModel.messages.last?.content, "Cached message 74")
-        XCTAssertTrue(viewModel.isLoading)
+        XCTAssertFalse(viewModel.isLoading)
         XCTAssertFalse(viewModel.isViewingCachedData)
     }
 

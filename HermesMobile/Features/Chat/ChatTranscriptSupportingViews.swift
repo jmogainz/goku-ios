@@ -4,6 +4,7 @@ import UIKit
 struct ChatScrollMetrics: Equatable {
     let distanceFromBottom: CGFloat
     let isUserInteracting: Bool
+    let maximumOffset: CGFloat
 }
 
 struct ChatScrollObserver: UIViewRepresentable {
@@ -143,10 +144,14 @@ struct ChatScrollObserver: UIViewRepresentable {
 
             let currentOffset = scrollView.contentOffset.y + inset.top
             let maximumOffset = scrollView.contentSize.height - visibleHeight
-            let distanceFromBottom = max(0, maximumOffset - currentOffset)
+            let distanceFromBottom = ChatScrollPolicy.signedDistanceFromBottom(
+                currentOffset: currentOffset,
+                maximumOffset: maximumOffset
+            )
             let metrics = ChatScrollMetrics(
                 distanceFromBottom: distanceFromBottom,
-                isUserInteracting: scrollView.isDragging || scrollView.isTracking || scrollView.isDecelerating
+                isUserInteracting: scrollView.isDragging || scrollView.isTracking || scrollView.isDecelerating,
+                maximumOffset: maximumOffset
             )
             guard metrics != lastMetrics else { return }
 

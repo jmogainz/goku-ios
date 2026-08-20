@@ -666,6 +666,39 @@ final class ChatActiveRunStatusPolicyTests: XCTestCase {
         XCTAssertEqual(presentation?.accessibilityLabel, "Connecting to conversation")
     }
 
+    func testConnectingStaysHiddenWhileACachedTranscriptIsAlreadyOnScreen() {
+        XCTAssertFalse(
+            ChatConnectionStatusPolicy.shouldShowConnecting(
+                isLoading: true,
+                hasPaintedTranscript: true,
+                hasActiveStream: false,
+                isStartingChat: false,
+                isVisiblySlow: true
+            )
+        )
+    }
+
+    func testConnectingStaysHiddenUntilTheLoadIsVisiblySlow() {
+        XCTAssertFalse(
+            ChatConnectionStatusPolicy.shouldShowConnecting(
+                isLoading: true,
+                hasPaintedTranscript: false,
+                hasActiveStream: false,
+                isStartingChat: false,
+                isVisiblySlow: false
+            )
+        )
+        XCTAssertTrue(
+            ChatConnectionStatusPolicy.shouldShowConnecting(
+                isLoading: true,
+                hasPaintedTranscript: false,
+                hasActiveStream: false,
+                isStartingChat: false,
+                isVisiblySlow: true
+            )
+        )
+    }
+
     func testConnectingYieldsToAnAlreadyLiveStream() {
         let presentation = ChatActiveRunStatusPolicy.presentation(
             isStartingChat: false,

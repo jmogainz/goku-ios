@@ -18,7 +18,6 @@ struct MessageBubbleView: View {
             : GokuVisualTheme.canvas(for: .dark, palette: palette).opacity(0.10)
     }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(ChatTranscriptDisplaySettings.hidesAttachmentPathsKey) private var hidesAttachmentPaths = true
     @AppStorage(ChatTranscriptDisplaySettings.showsAssistantTurnTimestampsKey) private var showsAssistantTurnTimestamps = false
     @AppStorage(ChatTranscriptDisplaySettings.showsResponseSpeedKey) private var showsResponseSpeed = false
@@ -123,13 +122,6 @@ struct MessageBubbleView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
-        // While this row is the active streaming message, animate its height
-        // growth at the same curve as the bottom-follow scroll so the streaming
-        // edge stays visually stationary instead of stepping per word flush.
-        .animation(
-            isStreaming ? ChatMotion.streamingFollow(reduceMotion: reduceMotion) : nil,
-            value: messageText
-        )
     }
 
     // MARK: - Assistant turn header (issue #258)

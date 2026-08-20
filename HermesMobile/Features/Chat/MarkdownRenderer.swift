@@ -187,6 +187,7 @@ private struct StreamingMarkdownChunkedView: View {
                     colorScheme: colorScheme,
                     isStreaming: false
                 )
+                .equatable()
             }
 
             if !blockSplit.head.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -357,10 +358,16 @@ private struct StreamingFadeBlockView: View {
     }
 }
 
-private struct ChatMarkdownView: View {
+private struct ChatMarkdownView: View, Equatable {
     let content: String
     let colorScheme: ColorScheme
     let isStreaming: Bool
+
+    static func == (lhs: ChatMarkdownView, rhs: ChatMarkdownView) -> Bool {
+        lhs.content == rhs.content
+            && lhs.colorScheme == rhs.colorScheme
+            && lhs.isStreaming == rhs.isStreaming
+    }
 
     var body: some View {
         Markdown(content)

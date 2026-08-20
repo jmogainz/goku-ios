@@ -73,6 +73,60 @@ enum ChatScrollPolicy {
 
         return now < cooldownUntil
     }
+
+    /// Streaming follow is owned by `defaultScrollAnchor(..., for: .sizeChanges)`.
+    /// Extra `scrollTo` on every token is what lags when the user flicks back down.
+    static func shouldProgrammaticallyFollowStreamTokens(shouldFollowLatestMessage: Bool) -> Bool {
+        _ = shouldFollowLatestMessage
+        return false
+    }
+
+    /// Token/reasoning flushes must not bump `streamingScrollTrigger`. That Int is
+    /// passed into `ChatTranscriptView`, so incrementing it re-evaluates every row
+    /// while the user is reading older messages — the iMessage-level hitch.
+    static func shouldBumpScrollTriggerForStreamingFlush() -> Bool {
+        false
+    }
+
+    /// Keep the active row's height changes unanimated. MarkdownUI already
+    /// performs expensive measurement; animating every token makes UIKit's
+    /// scroll view chase a moving target under the user's finger.
+    static func shouldAnimateStreamingBubbleHeight(
+        shouldFollowLatestMessage: Bool,
+        isUserInteracting: Bool
+    ) -> Bool {
+        _ = shouldFollowLatestMessage
+        _ = isUserInteracting
+        return false
+    }
+
+    static func shouldClearFollowCooldownWhenNearBottom(isNearBottom: Bool) -> Bool {
+        isNearBottom
+    }
+
+    /// Negative distance means the viewport is past the last row (blank canvas).
+    /// Snap back unless the user is still touching the scroll view.
+    static let overscrollRecoveryThreshold: CGFloat = 24
+
+    static func shouldRecoverOverscrolledTranscript(
+        distanceFromBottom: CGFloat,
+        isUserInteracting: Bool,
+        maximumOffset: CGFloat = .greatestFiniteMagnitude
+    ) -> Bool {
+        maximumOffset > 0 && !isUserInteracting && distanceFromBottom < -overscrollRecoveryThreshold
+    }
+
+    /// Keep the sign. `max(0, …)` hid the blank-canvas overscroll Jacob reported.
+    static func signedDistanceFromBottom(currentOffset: CGFloat, maximumOffset: CGFloat) -> CGFloat {
+        maximumOffset - currentOffset
+    }
+
+    static func shouldSnapWhenRejoiningLatest(
+        wasFollowingLatest: Bool,
+        isNearBottom: Bool
+    ) -> Bool {
+        isNearBottom && !wasFollowingLatest
+    }
 }
 
 /// Keeps transcript reconciliation and other state-heavy startup work out of
@@ -85,5 +139,49 @@ enum ChatInitialAppearancePolicy {
 
     static func shouldReloadTranscriptOnAppear(hasPreservedTranscript: Bool) -> Bool {
         !hasPreservedTranscript
+    }
+}
+
+enum ChatTranscriptRestoreTarget: Equatable {
+    case latest
+    case message(id: String)
+}
+
+/// Leave/reopen must land at latest or the last-read message.
+/// `defaultScrollAnchor(.bottom)` plus LazyVStack often paints mid-list first.
+enum ChatTranscriptRestorePolicy {
+    static func target(
+        wasFollowingLatest: Bool,
+        lastVisibleMessageID: String?
+    ) -> ChatTranscriptRestoreTarget {
+        if wasFollowingLatest {
+            return .latest
+        }
+
+        let trimmed = lastVisibleMessageID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            return .latest
+        }
+        return .message(id: trimmed)
+    }
+
+    static func shouldProgrammaticallyRestoreOnAppear(hasMessages: Bool) -> Bool {
+        hasMessages
+    }
+}
+
+enum ChatLiveReconcilePolicy {
+    /// A live SSE owner already has in-progress tools/reasoning in RAM.
+    /// A later `/api/session` page must not wipe that chrome — that is the
+    /// "everything dumps in after a wait" hitch.
+    static func shouldPreserveLiveRunChrome(
+        loadedActiveStreamID: String?,
+        localActiveStreamID: String?
+    ) -> Bool {
+        func present(_ value: String?) -> Bool {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return !trimmed.isEmpty
+        }
+        return present(loadedActiveStreamID) || present(localActiveStreamID)
     }
 }

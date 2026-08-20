@@ -46,6 +46,34 @@ final class StreamingMarkdownBlockSplitterTests: XCTestCase {
         XCTAssertFalse(segments.stableChunks.isEmpty)
         XCTAssertTrue(segments.activeMarkdown.contains("More text"))
     }
+
+    func testCompletedParagraphSealsWithoutWaitingForThousandsOfCharacters() {
+        let text = "First paragraph is done.\n\nSecond paragraph is still grow"
+        let segments = StreamingMarkdownBlockSplitter.split(text)
+
+        XCTAssertEqual(segments.stableChunks.map(\.text).joined(), "First paragraph is done.\n\n")
+        XCTAssertEqual(segments.activeMarkdown, "Second paragraph is still grow")
+    }
+
+    func testShortCompletedFenceSealsEvenWhenTheBodyIsSmall() {
+        let text = """
+        ```swift
+        let answer = 42
+        ```
+        Still streaming
+        """
+        let segments = StreamingMarkdownBlockSplitter.split(text)
+
+        XCTAssertEqual(segments.stableChunks.count, 1)
+        XCTAssertTrue(segments.stableChunks[0].text.contains("let answer = 42"))
+        XCTAssertEqual(segments.activeMarkdown.trimmingCharacters(in: .whitespacesAndNewlines), "Still streaming")
+    }
+
+    func testIncompleteLastParagraphStaysInTheActiveTail() {
+        let segments = StreamingMarkdownBlockSplitter.split("Only this growing sentence")
+        XCTAssertTrue(segments.stableChunks.isEmpty)
+        XCTAssertEqual(segments.activeMarkdown, "Only this growing sentence")
+    }
 }
 
 /// Width resolution for chat markdown table cells (issue #233). The layout
