@@ -1,6 +1,6 @@
 import Foundation
 
-struct ToolCall: Identifiable, Equatable {
+struct ToolCall: Identifiable, Equatable, Codable {
     let id: String
     var name: String?
     var preview: String?

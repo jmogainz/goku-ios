@@ -133,7 +133,7 @@ final class ChatPendingActionCoordinator {
                 return false
             }
 
-            approvalErrorMessage = error.localizedDescription
+            approvalErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
             delegate?.pendingActionCoordinatorDidFailAction(error)
             return false
         }
@@ -157,7 +157,7 @@ final class ChatPendingActionCoordinator {
             approvalPrompt = nil
             return true
         } catch {
-            approvalErrorMessage = error.localizedDescription
+            approvalErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
             delegate?.pendingActionCoordinatorDidFailAction(error)
             return false
         }
@@ -226,7 +226,7 @@ final class ChatPendingActionCoordinator {
                 return false
             }
 
-            clarificationErrorMessage = error.localizedDescription
+            clarificationErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
             delegate?.pendingActionCoordinatorDidFailAction(error)
             return false
         }

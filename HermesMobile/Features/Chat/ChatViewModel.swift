@@ -236,12 +236,34 @@ final class ChatViewModel {
         activeStreamID != nil || !liveToolCalls.isEmpty || !liveReasoningText.isEmpty
     }
 
+    /// A transcript is preserved only once there are actual message rows in
+    /// memory. A persisted live-run bookmark is chrome (reasoning/tools/cursor),
+    /// not authoritative history; after process death we must still fetch the
+    /// transcript before deciding to skip reload.
     var hasPreservedTranscript: Bool {
-        !messages.isEmpty || !liveToolCalls.isEmpty || !liveReasoningText.isEmpty
+        !messages.isEmpty
+    }
+
+    private(set) var savedFollowingLatest = true
+    private var savedVisibleMessageID: String?
+    private let restoreStore: TranscriptRestoreStore
+    private let liveRunBookmarkStore: LiveRunBookmarkStore
+
+    var transcriptRestoreTarget: ChatTranscriptRestoreTarget {
+        ChatTranscriptRestorePolicy.target(
+            wasFollowingLatest: savedFollowingLatest,
+            lastVisibleMessageID: savedVisibleMessageID
+        )
     }
 
     var isEstablishingConnection: Bool {
-        isLoading && activeStreamID == nil && !isStartingChat
+        ChatConnectionStatusPolicy.shouldShowConnecting(
+            isLoading: isLoading,
+            hasPaintedTranscript: hasPreservedTranscript,
+            hasActiveStream: activeStreamID != nil,
+            isStartingChat: isStartingChat,
+            isVisiblySlow: isConnectionVisiblySlow
+        )
     }
     var activeStreamRecoveryState: ActiveStreamRecoveryState { streamCoordinator.recoveryState }
     var liveTokensPerSecond: Double? { streamCoordinator.liveTokensPerSecond }
@@ -266,6 +288,8 @@ final class ChatViewModel {
     @ObservationIgnored private var pendingAssistantTokenChunks: [String] = []
     @ObservationIgnored private var pendingReasoningChunks: [String] = []
     @ObservationIgnored private var pendingStreamingContentFlushTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionVisibilityTask: Task<Void, Never>?
+    private var isConnectionVisiblySlow = false
     private(set) var completedToolCallGroups: [ToolCallGroup] = []
     private var completedToolCallGroupLookup = ToolCallGroupAnchorLookup()
     private(set) var completedReasoningGroups: [ReasoningGroup] = [] {
@@ -582,6 +606,18 @@ final class ChatViewModel {
         self.listenAudioSession = listenAudioSession ?? ListenAudioSessionController()
         self.listenRemoteControlCenter = listenRemoteControlCenter ?? ListenRemoteControlController()
         self.userDefaults = userDefaults
+        self.restoreStore = TranscriptRestoreStore(defaults: userDefaults)
+        self.liveRunBookmarkStore = LiveRunBookmarkStore(defaults: userDefaults)
+        let restorePoint = restoreStore.load(server: server, sessionID: session.sessionId ?? session.id)
+        savedFollowingLatest = restorePoint.followingLatest
+        savedVisibleMessageID = restorePoint.visibleMessageID
+        if let bookmark = liveRunBookmarkStore.load(server: server, sessionID: session.sessionId ?? session.id),
+           bookmark.streamID == session.activeStreamId {
+            liveReasoningText = bookmark.liveReasoningText
+            streamingAssistantMessageID = bookmark.streamingAssistantMessageID
+            liveToolCalls = bookmark.liveToolCalls
+            streamCoordinator.restoreLastEventID(bookmark.lastEventID)
+        }
         self.listenPlaybackSpeed = ListenPlaybackSpeed.stored(in: userDefaults)
         self.serverTTSAudioPlayerFactory = serverTTSAudioPlayerFactory
             ?? { try ServerTTSAudioPlayer(data: $0) }
@@ -597,6 +633,7 @@ final class ChatViewModel {
         streamStatusWatchTask?.cancel()
         pendingStreamingScrollTriggerTask?.cancel()
         pendingStreamingContentFlushTask?.cancel()
+        connectionVisibilityTask?.cancel()
         listenPreparationTask?.cancel()
         listenPlaybackTicker?.invalidate()
     }
@@ -624,8 +661,51 @@ final class ChatViewModel {
         wasReusedFromOpenSessionStore = true
     }
 
+    func rememberTranscriptRestorePoint(followingLatest: Bool, visibleMessageID: String?) {
+        savedFollowingLatest = followingLatest
+        savedVisibleMessageID = followingLatest ? nil : visibleMessageID
+        restoreStore.save(
+            TranscriptRestorePoint(
+                followingLatest: savedFollowingLatest,
+                visibleMessageID: savedVisibleMessageID
+            ),
+            server: server,
+            sessionID: sessionID ?? ""
+        )
+    }
+
     func markConversationConnectionInProgress() {
+        beginConnectionWaitIfNeeded()
+    }
+
+    func markConnectionVisiblySlowForTesting() {
+        isConnectionVisiblySlow = true
+    }
+
+    private func beginConnectionWaitIfNeeded() {
+        if hasPreservedTranscript || activeStreamID != nil {
+            return
+        }
         isLoading = true
+        guard connectionVisibilityTask == nil else { return }
+
+        isConnectionVisiblySlow = false
+        connectionVisibilityTask = Task { @MainActor [weak self] in
+            let delay = UInt64(ChatConnectionStatusPolicy.visibleDelay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.connectionVisibilityTask = nil
+            if self.isLoading {
+                self.isConnectionVisiblySlow = true
+            }
+        }
+    }
+
+    private func endConnectionWait() {
+        connectionVisibilityTask?.cancel()
+        connectionVisibilityTask = nil
+        isConnectionVisiblySlow = false
+        isLoading = false
     }
 
     // Test seam: deterministically await the in-flight coalesced scroll-trigger task
@@ -748,7 +828,7 @@ final class ChatViewModel {
             didMutate = true
         }
 
-        if didMutate {
+        if didMutate, ChatScrollPolicy.shouldBumpScrollTriggerForStreamingFlush() {
             scheduleStreamingScrollTrigger()
         }
 
@@ -785,7 +865,7 @@ final class ChatViewModel {
             didMutate = true
         }
 
-        if didMutate {
+        if didMutate, ChatScrollPolicy.shouldBumpScrollTriggerForStreamingFlush() {
             scheduleStreamingScrollTrigger()
         }
     }
@@ -835,7 +915,7 @@ final class ChatViewModel {
 
             if let error = result.configurationError {
                 lastError = error
-                composerConfigurationErrorMessage = error.localizedDescription
+                composerConfigurationErrorMessage = CacheFallbackPolicy.composerBannerMessage(for: error)
             }
         } while needsComposerConfigurationReload
     }
@@ -1245,16 +1325,18 @@ final class ChatViewModel {
         messageLoadGeneration &+= 1
         let generation = messageLoadGeneration
         let streamIDAtLoadStart = activeStreamID
-        resetPendingStreamingContentBuffers()
+        if streamIDAtLoadStart == nil {
+            resetPendingStreamingContentBuffers()
+        }
         latestServerLoadHadAssistantResponseAfterLatestUser = false
         let streamLoadPreparation = streamCoordinator.prepareForSessionLoad()
-        isLoading = true
+        beginConnectionWaitIfNeeded()
         errorMessage = nil
         cacheErrorMessage = nil
         lastError = nil
         defer {
             if messageLoadGeneration == generation {
-                isLoading = false
+                endConnectionWait()
             }
         }
 
@@ -1354,13 +1436,19 @@ final class ChatViewModel {
                 messages: messages,
                 messageOffset: messagesOffset
             ))
-            completedReasoningGroups = []
-            liveToolCalls = []
-            liveReasoningText = ""
-            pinnedLocalNotices = []
-            toolCallAnchorMessageID = nil
-            reasoningAnchorMessageID = nil
-            attachmentCoordinator.removeAllLocalPreviews()
+            let preserveLiveChrome = ChatLiveReconcilePolicy.shouldPreserveLiveRunChrome(
+                loadedActiveStreamID: loadedActiveStreamID,
+                localActiveStreamID: activeStreamID ?? streamIDAtLoadStart
+            )
+            if !preserveLiveChrome {
+                completedReasoningGroups = []
+                liveToolCalls = []
+                liveReasoningText = ""
+                pinnedLocalNotices = []
+                toolCallAnchorMessageID = nil
+                reasoningAnchorMessageID = nil
+                attachmentCoordinator.removeAllLocalPreviews()
+            }
             streamCoordinator.reconcileSessionLoad(
                 loadedActiveStreamID: loadedActiveStreamID,
                 preparation: streamLoadPreparation,
@@ -1432,14 +1520,15 @@ final class ChatViewModel {
     /// cannot stall the system push animation.
     func prepareInitialMessageLoad(modelContext: ModelContext) {
         guard let sessionID else { return }
-
-        isLoading = true
         guard messages.isEmpty else { return }
 
         _ = renderCachedMessagesBeforeReload(
             sessionID: sessionID,
             modelContext: modelContext
         )
+        if messages.isEmpty {
+            beginConnectionWaitIfNeeded()
+        }
     }
 
     /// Cache-first render (#289): on a cold session open, paint the cached transcript
@@ -2050,7 +2139,7 @@ final class ChatViewModel {
         // delayed `/api/session` response cannot replace optimistic/live rows or
         // clear the new stream ID.
         messageLoadGeneration &+= 1
-        isLoading = false
+        endConnectionWait()
         clearCacheFirstMessagePlaceholder()
         streamCoordinator.prepareForNewResponse()
     }
@@ -2261,7 +2350,7 @@ final class ChatViewModel {
                 return false
             }
             lastError = error
-            sendErrorMessage = error.localizedDescription
+            sendErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
             rollbackOptimisticMessage(id: localMessageID)
             cacheCurrentMessages(sessionID: sessionID, modelContext: modelContext)
             restorePendingAttachments(attachmentsToRestoreOnFailure)
@@ -3867,6 +3956,17 @@ final class ChatViewModel {
             sessionID: sessionID,
             streamID: activeStreamID
         )
+        liveRunBookmarkStore.save(
+            LiveRunBookmark(
+                streamID: activeStreamID,
+                lastEventID: streamCoordinator.lastEventID,
+                liveReasoningText: liveReasoningText,
+                streamingAssistantMessageID: streamingAssistantMessageID,
+                liveToolCalls: liveToolCalls
+            ),
+            server: server,
+            sessionID: sessionID
+        )
     }
 
     @discardableResult
@@ -3918,6 +4018,7 @@ final class ChatViewModel {
             sessionID: sessionID,
             streamID: streamID
         )
+        liveRunBookmarkStore.remove(server: server, sessionID: sessionID)
     }
 
     @discardableResult
@@ -4107,7 +4208,6 @@ final class ChatViewModel {
                 attachments: existing.attachments,
                 turnTps: existing.turnTps
             )
-            scheduleStreamingScrollTrigger()
             return true
         }
 
@@ -4318,7 +4418,6 @@ final class ChatViewModel {
                 args: payload.args
             )
         )
-        scheduleStreamingScrollTrigger()
         return true
     }
 
@@ -4337,7 +4436,6 @@ final class ChatViewModel {
             guard !wasAlreadyCompleted else { return false }
 
             liveToolCalls[duplicateReplayIndex] = liveToolCalls[duplicateReplayIndex].applyingCompletionPayload(payload)
-            scheduleStreamingScrollTrigger()
             return true
         }
 
@@ -4355,12 +4453,10 @@ final class ChatViewModel {
                     isCompleted: true
                 )
             )
-            scheduleStreamingScrollTrigger()
             return true
         }
 
         liveToolCalls[index] = liveToolCalls[index].applyingCompletionPayload(payload)
-        scheduleStreamingScrollTrigger()
         return true
     }
 
@@ -5017,7 +5113,7 @@ extension ChatViewModel: ChatPendingActionCoordinatorDelegate {
 
     func pendingActionCoordinatorDidFailAction(_ error: Error) {
         lastError = error
-        sendErrorMessage = error.localizedDescription
+        sendErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
     }
 }
 
@@ -5117,7 +5213,10 @@ extension ChatViewModel: ChatStreamCoordinatorDelegate {
 
     func streamCoordinatorDidReceiveRecoveryError(_ error: Error) {
         lastError = error
-        sendErrorMessage = error.localizedDescription
+        if CacheFallbackPolicy.isTransientBlip(error) {
+            return
+        }
+        sendErrorMessage = CacheFallbackPolicy.sendBannerMessage(for: error)
     }
 
     func streamCoordinatorDidStartConnection(isReplay: Bool) {

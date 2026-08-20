@@ -137,4 +137,186 @@ final class ChatScrollPolicyTests: XCTestCase {
             accuracy: 0.0001
         )
     }
+
+    func testStreamingTokensDoNotEmitProgrammaticFollowScroll() {
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldProgrammaticallyFollowStreamTokens(
+                shouldFollowLatestMessage: true
+            )
+        )
+    }
+
+    func testReturningToBottomClearsFollowCooldown() {
+        XCTAssertTrue(
+            ChatScrollPolicy.shouldClearFollowCooldownWhenNearBottom(isNearBottom: true)
+        )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldClearFollowCooldownWhenNearBottom(isNearBottom: false)
+        )
+    }
+
+    func testOverscrolledTranscriptShouldSnapBackWhenIdle() {
+        XCTAssertTrue(
+            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
+                distanceFromBottom: -40,
+                isUserInteracting: false
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
+                distanceFromBottom: -40,
+                isUserInteracting: true
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
+                distanceFromBottom: 8,
+                isUserInteracting: false
+            )
+        )
+    }
+
+    func testFollowRejoinShouldSnapWithoutAnimation() {
+        XCTAssertTrue(
+            ChatScrollPolicy.shouldSnapWhenRejoiningLatest(
+                wasFollowingLatest: false,
+                isNearBottom: true
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldSnapWhenRejoiningLatest(
+                wasFollowingLatest: true,
+                isNearBottom: true
+            )
+        )
+    }
+
+    func testFirstEnterWithNoSavedPointRestoresLatest() {
+        XCTAssertEqual(
+            ChatTranscriptRestorePolicy.target(
+                wasFollowingLatest: true,
+                lastVisibleMessageID: nil
+            ),
+            .latest
+        )
+    }
+
+    func testLeaveWhileFollowingLatestRestoresLatestEvenIfAMessageIDExists() {
+        XCTAssertEqual(
+            ChatTranscriptRestorePolicy.target(
+                wasFollowingLatest: true,
+                lastVisibleMessageID: "msg-mid"
+            ),
+            .latest
+        )
+    }
+
+    func testLeaveWhileReadingOlderRestoresThatMessage() {
+        XCTAssertEqual(
+            ChatTranscriptRestorePolicy.target(
+                wasFollowingLatest: false,
+                lastVisibleMessageID: "msg-where-i-left"
+            ),
+            .message(id: "msg-where-i-left")
+        )
+    }
+
+    func testBlankSavedMessageFallsBackToLatest() {
+        XCTAssertEqual(
+            ChatTranscriptRestorePolicy.target(
+                wasFollowingLatest: false,
+                lastVisibleMessageID: "   "
+            ),
+            .latest
+        )
+        XCTAssertEqual(
+            ChatTranscriptRestorePolicy.target(
+                wasFollowingLatest: false,
+                lastVisibleMessageID: nil
+            ),
+            .latest
+        )
+    }
+
+    func testAppearMustProgrammaticallyRestoreWhenTheTranscriptHasRows() {
+        XCTAssertTrue(ChatTranscriptRestorePolicy.shouldProgrammaticallyRestoreOnAppear(hasMessages: true))
+        XCTAssertFalse(ChatTranscriptRestorePolicy.shouldProgrammaticallyRestoreOnAppear(hasMessages: false))
+    }
+
+    func testSignedDistanceIsNegativeWhenTheViewportIsPastTheLastRow() {
+        XCTAssertEqual(
+            ChatScrollPolicy.signedDistanceFromBottom(currentOffset: 1_200, maximumOffset: 1_000),
+            -200
+        )
+        XCTAssertEqual(
+            ChatScrollPolicy.signedDistanceFromBottom(currentOffset: 1_000, maximumOffset: 1_000),
+            0
+        )
+        XCTAssertEqual(
+            ChatScrollPolicy.signedDistanceFromBottom(currentOffset: 900, maximumOffset: 1_000),
+            100
+        )
+    }
+
+    func testShortTranscriptDoesNotCountAsOverscroll() {
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
+                distanceFromBottom: -600,
+                isUserInteracting: false,
+                maximumOffset: -400
+            )
+        )
+    }
+
+    func testStreamingFlushMustNotInvalidateTheTranscriptView() {
+        XCTAssertFalse(ChatScrollPolicy.shouldBumpScrollTriggerForStreamingFlush())
+    }
+
+    func testLiveSessionReconcileKeepsInProgressChrome() {
+        XCTAssertTrue(
+            ChatLiveReconcilePolicy.shouldPreserveLiveRunChrome(
+                loadedActiveStreamID: "stream-live",
+                localActiveStreamID: nil
+            )
+        )
+        XCTAssertTrue(
+            ChatLiveReconcilePolicy.shouldPreserveLiveRunChrome(
+                loadedActiveStreamID: nil,
+                localActiveStreamID: "stream-live"
+            )
+        )
+        XCTAssertFalse(
+            ChatLiveReconcilePolicy.shouldPreserveLiveRunChrome(
+                loadedActiveStreamID: nil,
+                localActiveStreamID: nil
+            )
+        )
+        XCTAssertFalse(
+            ChatLiveReconcilePolicy.shouldPreserveLiveRunChrome(
+                loadedActiveStreamID: "   ",
+                localActiveStreamID: ""
+            )
+        )
+    }
+
+    func testStreamingBubbleHeightMustNotImplicitlyAnimateUnderTheFinger() {
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldAnimateStreamingBubbleHeight(
+                shouldFollowLatestMessage: false,
+                isUserInteracting: false
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldAnimateStreamingBubbleHeight(
+                shouldFollowLatestMessage: true,
+                isUserInteracting: true
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldAnimateStreamingBubbleHeight(
+                shouldFollowLatestMessage: true,
+                isUserInteracting: false
+            )
+        )
+    }
 }

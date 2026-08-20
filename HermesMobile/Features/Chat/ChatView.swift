@@ -286,6 +286,10 @@ struct ChatView: View {
     let autoStartsVoiceInput: Bool
 
     @State private var draftMessage = ""
+    @State private var followRejoinScrollToken = 0
+    @State private var restoreScrollToken = 0
+    @State private var didRequestTranscriptRestore = false
+    @State private var scrolledMessageID: String?
     @State private var isScrolledNearBottom = true
     @State private var isReadingOlderTranscript = false
     @State private var shouldFollowLatestMessage = true
@@ -342,7 +346,13 @@ struct ChatView: View {
         self.onAPIError = onAPIError
         self.loadsInitialMessages = loadsInitialMessages
         self.autoStartsVoiceInput = autoStartsVoiceInput
-        _draftMessage = State(initialValue: initialDraft)
+        _draftMessage = State(initialValue: ComposerDraftStore.resolvedDraft(
+            initialDraft: initialDraft,
+            storedDraft: ComposerDraftStore.shared.load(
+                server: server,
+                sessionID: session.sessionId ?? session.id
+            )
+        ))
         _initialAttachments = State(initialValue: initialAttachments)
         _viewModel = State(initialValue: OpenChatSessionStore.shared.viewModel(
             session: session,
@@ -496,6 +506,11 @@ struct ChatView: View {
         // The composer flips wholesale with the transcript under the RTL
         // toggle (#259): input, placeholder, and chrome mirror together.
         .environment(\.layoutDirection, chatLayoutDirection)
+        .onChange(of: draftMessage) {
+            // Persist every edit, not only navigation/background transitions.
+            // A force-quit while the keyboard is up must still preserve the draft.
+            persistComposerDraft()
+        }
         .background(
             NavigationAppearanceCompletionObserver(action: handleInitialAppearanceCompletion)
                 .allowsHitTesting(false)
@@ -607,6 +622,8 @@ struct ChatView: View {
                 viewModel.setShowsLiveActivityResponseExcerpts(showsLiveActivityResponseExcerpts)
             }
             .onDisappear {
+                persistComposerDraft()
+                persistTranscriptRestore()
                 foregroundRefreshTask?.cancel()
                 foregroundRefreshTask = nil
                 activeStreamStatusRefreshTask?.cancel()
@@ -1192,7 +1209,11 @@ struct ChatView: View {
             },
             onOpenTurnFileDiff: { file in
                 turnDiffPresentation = .file(file)
-            }
+            },
+            restoreScrollToken: restoreScrollToken,
+            restoreTarget: viewModel.transcriptRestoreTarget,
+            followRejoinScrollToken: followRejoinScrollToken,
+            scrolledMessageID: $scrolledMessageID
         )
     }
 
@@ -1354,6 +1375,7 @@ struct ChatView: View {
             await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
             guard !Task.isCancelled else { return }
         }
+        requestTranscriptRestoreIfNeeded()
         if initialAttachments.isEmpty {
             isInitialComposerFocusContentReady = true
             applyInitialComposerFocusPolicyIfNeeded()
@@ -1524,6 +1546,7 @@ struct ChatView: View {
         if !didStart, draftMessage.isEmpty {
             draftMessage = submittedDraft
         }
+        persistComposerDraft()
 
         return didStart
     }
@@ -1873,6 +1896,8 @@ struct ChatView: View {
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .background:
+            persistComposerDraft()
+            persistTranscriptRestore()
             foregroundRefreshTask?.cancel()
             foregroundRefreshTask = nil
             if viewModel.activeStreamID != nil {
@@ -2144,10 +2169,36 @@ struct ChatView: View {
         }
     }
 
+    private func persistComposerDraft() {
+        ComposerDraftStore.shared.save(
+            draftMessage,
+            server: server,
+            sessionID: session.sessionId ?? session.id
+        )
+    }
+
+    private func persistTranscriptRestore() {
+        viewModel.rememberTranscriptRestorePoint(
+            followingLatest: shouldFollowLatestMessage,
+            visibleMessageID: scrolledMessageID == bottomAnchorID ? nil : scrolledMessageID
+        )
+    }
+
+    private func requestTranscriptRestoreIfNeeded() {
+        guard !didRequestTranscriptRestore else { return }
+        guard ChatTranscriptRestorePolicy.shouldProgrammaticallyRestoreOnAppear(
+            hasMessages: !viewModel.messages.isEmpty
+        ) else { return }
+
+        didRequestTranscriptRestore = true
+        shouldFollowLatestMessage = viewModel.savedFollowingLatest
+        restoreScrollToken += 1
+    }
+
     private func updateScrollMetrics(_ metrics: ChatScrollMetrics) {
         let isStreaming = viewModel.activeStreamID != nil
         let isNearBottom = ChatScrollPolicy.isNearBottom(
-            distanceFromBottom: metrics.distanceFromBottom,
+            distanceFromBottom: max(0, metrics.distanceFromBottom),
             isStreaming: isStreaming
         )
         isScrolledNearBottom = isNearBottom
@@ -2159,7 +2210,28 @@ struct ChatView: View {
             userScrollCooldownUntil = ChatScrollPolicy.cooldownDeadline()
         }
 
+        if ChatScrollPolicy.shouldRecoverOverscrolledTranscript(
+            distanceFromBottom: metrics.distanceFromBottom,
+            isUserInteracting: metrics.isUserInteracting,
+            maximumOffset: metrics.maximumOffset
+        ) {
+            shouldFollowLatestMessage = true
+            isReadingOlderTranscript = false
+            followRejoinScrollToken += 1
+            userScrollCooldownUntil = nil
+            return
+        }
+
         if isNearBottom {
+            if ChatScrollPolicy.shouldClearFollowCooldownWhenNearBottom(isNearBottom: true) {
+                userScrollCooldownUntil = nil
+            }
+            if ChatScrollPolicy.shouldSnapWhenRejoiningLatest(
+                wasFollowingLatest: shouldFollowLatestMessage,
+                isNearBottom: true
+            ) {
+                followRejoinScrollToken += 1
+            }
             shouldFollowLatestMessage = true
             if isReadingOlderTranscript {
                 withAnimation(ChatMotion.quickState(reduceMotion: reduceMotion)) {
@@ -2170,7 +2242,7 @@ struct ChatView: View {
             shouldFollowLatestMessage = false
             if !isReadingOlderTranscript,
                ChatScrollPolicy.shouldEnterReadingOlder(
-                   distanceFromBottom: metrics.distanceFromBottom,
+                   distanceFromBottom: max(0, metrics.distanceFromBottom),
                    isStreaming: isStreaming
                ) {
                 withAnimation(ChatMotion.quickState(reduceMotion: reduceMotion)) {

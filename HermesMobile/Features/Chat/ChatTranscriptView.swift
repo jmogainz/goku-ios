@@ -77,6 +77,10 @@ struct ChatTranscriptView: View {
     var turnChangesSummary: TurnFileChangeSummary? = nil
     var onOpenTurnDiff: () -> Void = {}
     var onOpenTurnFileDiff: (GitFile) -> Void = { _ in }
+    var restoreScrollToken: Int = 0
+    var restoreTarget: ChatTranscriptRestoreTarget = .latest
+    var followRejoinScrollToken: Int = 0
+    var scrolledMessageID: Binding<String?> = .constant(nil)
 
     var body: some View {
         if isLoading && messages.isEmpty && clarificationPrompt == nil {
@@ -131,6 +135,7 @@ struct ChatTranscriptView: View {
                         ),
                         for: .sizeChanges
                     )
+                    .scrollPosition(id: scrolledMessageID)
                     .frame(width: viewportWidth)
                     .refreshable {
                         if hasOlderMessages {
@@ -175,9 +180,17 @@ struct ChatTranscriptView: View {
                     }
                 }
                 .onChange(of: streamingScrollTrigger) {
-                    if shouldFollowLatestMessage {
-                        onScrollToLatestContent(proxy, true)
-                    }
+                    guard ChatScrollPolicy.shouldProgrammaticallyFollowStreamTokens(
+                        shouldFollowLatestMessage: shouldFollowLatestMessage
+                    ) else { return }
+                    onScrollToLatestContent(proxy, true)
+                }
+                .onChange(of: restoreScrollToken) {
+                    applyTranscriptRestore(proxy)
+                }
+                .onChange(of: followRejoinScrollToken) {
+                    guard followRejoinScrollToken > 0 else { return }
+                    onScrollToLatestContent(proxy, false)
                 }
                 .onChange(of: cacheFirstReconcileScrollToken) {
                     // Cache-first reconcile (#289): the server transcript just replaced
@@ -278,6 +291,7 @@ struct ChatTranscriptView: View {
                 .id(bottomAnchorID)
                 .allowsHitTesting(false)
         }
+        .scrollTargetLayout()
         .padding(.top, 16)
         .frame(width: contentWidth, alignment: .leading)
         .padding(.horizontal, transcriptHorizontalPadding)
@@ -305,6 +319,19 @@ struct ChatTranscriptView: View {
 
     private func transcriptContentWidth(for viewportWidth: CGFloat) -> CGFloat {
         max(0, viewportWidth - (transcriptHorizontalPadding * 2))
+    }
+
+    private func applyTranscriptRestore(_ proxy: ScrollViewProxy) {
+        guard ChatTranscriptRestorePolicy.shouldProgrammaticallyRestoreOnAppear(hasMessages: !messages.isEmpty) else {
+            return
+        }
+
+        switch restoreTarget {
+        case .latest:
+            onScrollToLatestContent(proxy, false)
+        case .message(let id):
+            proxy.scrollTo(id, anchor: .top)
+        }
     }
 
     @ViewBuilder
