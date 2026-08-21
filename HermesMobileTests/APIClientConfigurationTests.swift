@@ -705,4 +705,11 @@ final class APIClientConfigurationTests: APIClientTestCase {
         XCTAssertEqual(response.webuiVersion, "v0.50.253")
         XCTAssertEqual(response.theme, "system")
     }
+
+    func testReasoningOptionsIncludeForwardCompatibleMaxLevel() {
+        let options = ReasoningEffortOption.options(forSupportedEfforts: ["low", "max"])
+
+        XCTAssertEqual(options.map(\.id), ["low", "max"])
+        XCTAssertEqual(ReasoningEffortOption.title(for: "max"), "Max")
+    }
 }

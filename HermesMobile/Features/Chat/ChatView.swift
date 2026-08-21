@@ -633,7 +633,6 @@ struct ChatView: View {
                 ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
             }
             .onAppear {
-                viewModel.startSessionEventSync()
                 foregroundRefreshTask?.cancel()
                 viewModel.cancelOwnedStreamStatusWatch()
                 foregroundRefreshTask = Task { @MainActor in
@@ -649,6 +648,8 @@ struct ChatView: View {
                         onAPIError(lastError)
                     }
                 }
+
+                viewModel.startSessionEventSync()
             }
             .onChange(of: viewModel.responseCompletionHapticTrigger) {
                 guard viewModel.responseCompletionHapticTrigger > 0 else { return }
