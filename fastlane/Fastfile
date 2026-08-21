@@ -46,6 +46,7 @@ platform :ios do
 
     xcargs = [
       "-allowProvisioningUpdates",
+      "CODE_SIGN_IDENTITY=Apple Distribution",
       "-authenticationKeyPath #{key_path}",
       "-authenticationKeyID #{key_id}",
       "-authenticationKeyIssuerID #{issuer_id}",
