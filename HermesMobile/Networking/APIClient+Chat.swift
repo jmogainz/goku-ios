@@ -27,6 +27,10 @@ extension APIClient {
         )
     }
 
+    nonisolated func sessionEventsURL(sessionID: String) -> URL {
+        Endpoint.sessionEvents(sessionID: sessionID).url(relativeTo: baseURL)
+    }
+
     nonisolated func chatStreamURL(streamID: String, replayAfterSeq: Int? = nil) -> URL {
         let url = Endpoint.chatStream(streamID: streamID).url(relativeTo: baseURL)
         guard let replayAfterSeq,

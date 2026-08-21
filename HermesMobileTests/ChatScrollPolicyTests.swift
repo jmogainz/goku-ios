@@ -144,6 +144,16 @@ final class ChatScrollPolicyTests: XCTestCase {
                 shouldFollowLatestMessage: true
             )
         )
+        XCTAssertFalse(
+            ChatScrollPolicy.shouldProgrammaticallyFollowStreamTokens(
+                shouldFollowLatestMessage: false
+            )
+        )
+    }
+
+    func testReadingOlderKeepsTranscriptViewportStableDuringMarkdownResize() {
+        XCTAssertNil(ChatScrollPolicy.sizeChangeAnchor(shouldFollowLatestMessage: false))
+        XCTAssertFalse(ChatScrollPolicy.shouldBumpScrollTriggerForStreamingFlush())
     }
 
 
