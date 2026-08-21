@@ -476,6 +476,7 @@ final class ChatViewModel {
     private let pendingActionCoordinator: ChatPendingActionCoordinator
     private let attachmentCoordinator: ChatAttachmentCoordinator
     private let btwStreamClient: SSEStreamingClient
+    private let sessionEventStreamCoordinator: SessionEventStreamCoordinator
     private let liveActivityManager: any AgentLiveActivityManaging
     private let speechSynthesizerFactory: () -> any ChatSpeechSynthesizing
     private let listenAudioSession: any ListenAudioSessionControlling
@@ -539,6 +540,7 @@ final class ChatViewModel {
     private var activeBtwAnswer = ""
     private var backgroundPromptsByTaskID: [String: String] = [:]
     @ObservationIgnored private var backgroundPollTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionEventReconcileTask: Task<Void, Never>?
     @ObservationIgnored private var streamStatusWatchTask: Task<Void, Never>?
     private var isRefreshingCompletedResponseTitle = false
     private var isActiveStreamReplayConnection: Bool { streamCoordinator.isReplayConnection }
@@ -559,6 +561,7 @@ final class ChatViewModel {
         approvalStreamClient: SSEStreamingClient? = nil,
         clarifyStreamClient: SSEStreamingClient? = nil,
         btwStreamClient: SSEStreamingClient? = nil,
+        sessionEventStreamClient: SSEStreamingClient? = nil,
         liveActivityManager: (any AgentLiveActivityManaging)? = nil,
         showsLiveActivityResponseExcerpts: Bool = false,
         pollingIntervals: ChatPollingIntervals = .standard,
@@ -596,6 +599,13 @@ final class ChatViewModel {
         )
         self.attachmentCoordinator = ChatAttachmentCoordinator(client: resolvedClient)
         self.btwStreamClient = btwStreamClient ?? SSEClient()
+        self.sessionEventStreamCoordinator = SessionEventStreamCoordinator(
+            server: server,
+            sessionID: session.sessionId ?? "",
+            profile: session.profile,
+            streamClient: sessionEventStreamClient ?? SSEClient(),
+            userDefaults: userDefaults
+        )
         self.liveActivityManager = resolvedLiveActivityManager
         self.showsLiveActivityResponseExcerpts = showsLiveActivityResponseExcerpts
         self.pollingIntervals = pollingIntervals
@@ -622,6 +632,12 @@ final class ChatViewModel {
         self.serverTTSAudioPlayerFactory = serverTTSAudioPlayerFactory
             ?? { try ServerTTSAudioPlayer(data: $0) }
         displayTitle = Self.displayTitle(from: session.title)
+        self.sessionEventStreamCoordinator.onSnapshot = { [weak self] snapshot in
+            self?.applySessionEventSnapshot(snapshot) ?? false
+        }
+        self.sessionEventStreamCoordinator.onEvent = { [weak self] event in
+            self?.handleSessionEvent(event)
+        }
         self.streamCoordinator.attach(delegate: self)
         self.pendingActionCoordinator.delegate = self
         self.attachmentCoordinator.delegate = self
@@ -630,6 +646,7 @@ final class ChatViewModel {
 
     deinit {
         backgroundPollTask?.cancel()
+        sessionEventReconcileTask?.cancel()
         streamStatusWatchTask?.cancel()
         pendingStreamingScrollTriggerTask?.cancel()
         pendingStreamingContentFlushTask?.cancel()
@@ -655,6 +672,62 @@ final class ChatViewModel {
 
     nonisolated static func resetActiveStreamSnapshotsForTesting() {
         ActiveChatStreamSnapshotStore.shared.removeAll()
+    }
+
+    func startSessionEventSync() {
+        sessionEventStreamCoordinator.start()
+    }
+
+    func stopSessionEventSync() {
+        sessionEventReconcileTask?.cancel()
+        sessionEventReconcileTask = nil
+        sessionEventStreamCoordinator.stop()
+    }
+
+    private func handleSessionEvent(_ event: SSEEvent) {
+        switch event {
+        case .done, .streamEnd, .cancelled, .error, .lostWorkerBookkeeping:
+            scheduleSessionEventReconcile()
+        default:
+            break
+        }
+    }
+
+    private func scheduleSessionEventReconcile() {
+        sessionEventReconcileTask?.cancel()
+        sessionEventReconcileTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.loadMessages()
+        }
+    }
+
+    private func applySessionEventSnapshot(_ snapshot: SessionSummary) -> Bool {
+        let snapshotID = (snapshot.sessionId ?? snapshot.id).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sessionID, snapshotID == sessionID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+
+        currentWorkspace = snapshot.workspace
+        currentModel = snapshot.model
+        currentModelProvider = snapshot.modelProvider
+        currentProfile = snapshot.profile ?? currentProfile
+        if let title = snapshot.title {
+            displayTitle = Self.displayTitle(from: title)
+        }
+
+        // A session snapshot is metadata, not an authoritative transcript. Reconcile
+        // the transcript separately and keep the visible/live state until that load
+        // wins its own generation check.
+        if activeStreamID == nil {
+            sessionEventReconcileTask?.cancel()
+            sessionEventReconcileTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled, let self else { return }
+                await self.loadMessages()
+            }
+        }
+        return true
     }
 
     func markReusedFromOpenSessionStore() {
@@ -4081,7 +4154,7 @@ final class ChatViewModel {
             activeBtwAnswer = "Error: \(message)"
             updateActiveBtwMessage(isLoading: false)
             finishBtwStream()
-        case .heartbeat, .ignored, .reasoning, .toolStarted, .toolCompleted, .title, .metering, .pendingSteerLeftover, .lostWorkerBookkeeping:
+        case .heartbeat, .ignored, .reasoning, .toolStarted, .toolCompleted, .title, .sessionSnapshot, .metering, .pendingSteerLeftover, .lostWorkerBookkeeping:
             break
         }
     }

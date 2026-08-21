@@ -629,9 +629,11 @@ struct ChatView: View {
                 foregroundRefreshTask = nil
                 activeStreamStatusRefreshTask?.cancel()
                 activeStreamStatusRefreshTask = nil
+                viewModel.stopSessionEventSync()
                 ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
             }
             .onAppear {
+                viewModel.startSessionEventSync()
                 foregroundRefreshTask?.cancel()
                 viewModel.cancelOwnedStreamStatusWatch()
                 foregroundRefreshTask = Task { @MainActor in
