@@ -647,6 +647,10 @@ final class ChatStreamCoordinator {
             if delegate?.streamCoordinatorUpdateTitle(payload) == true {
                 markProgress()
             }
+        case .sessionSnapshot:
+            // Session-wide snapshots are owned by SessionEventStreamCoordinator.
+            // A chat stream must not mutate metadata or transcript state from them.
+            break
         case .metering(let payload):
             guard payload.sessionId == nil || payload.sessionId == delegate?.streamCoordinatorSessionID else {
                 break

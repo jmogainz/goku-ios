@@ -186,14 +186,42 @@ final class SSEClientTests: XCTestCase {
         let client = SSEClient(urlSessionConfiguration: configuration)
         let heartbeat = expectation(description: "received heartbeat comment")
 
-        client.start(url: URL(string: "https://example.test/api/chat/stream?stream_id=stream-123")!) { event in
+        client.start(url: URL(string: "https://example.test/api/sessions/session-abc/events")!, resumeFrom: "journal:7") { event in
             if case .heartbeat = event {
                 heartbeat.fulfill()
             }
         }
 
         await fulfillment(of: [heartbeat], timeout: 5)
+        XCTAssertEqual(
+            DelayedSSEURLProtocol.capturedRequest()?.value(forHTTPHeaderField: "Last-Event-ID"),
+            "journal:7"
+        )
         client.stop()
+    }
+
+    func testDecodesSessionSnapshotEnvelopeWithSnakeCaseFields() {
+        let event = SSEEventDecoder.decode(
+            eventType: "session_snapshot",
+            data: #"{"session":{"session_id":"session-abc","model_provider":"openai-codex","message_count":12,"updated_at":1720000000.5}}"#
+        )
+
+        guard case let .sessionSnapshot(snapshot) = event else {
+            XCTFail("Expected a decoded session snapshot, got \(event)")
+            return
+        }
+
+        XCTAssertEqual(snapshot.sessionId, "session-abc")
+        XCTAssertEqual(snapshot.modelProvider, "openai-codex")
+        XCTAssertEqual(snapshot.messageCount, 12)
+        XCTAssertEqual(snapshot.updatedAt, 1_720_000_000.5)
+    }
+
+    func testMalformedSessionSnapshotEnvelopeIsIgnored() {
+        XCTAssertEqual(
+            SSEEventDecoder.decode(eventType: "session_snapshot", data: #"{"session_id":"session-abc"}"#),
+            .ignored
+        )
     }
 
     func testDecodesToolStartedEventFromUpstreamPayload() {

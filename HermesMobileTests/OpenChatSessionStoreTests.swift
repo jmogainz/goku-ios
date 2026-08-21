@@ -308,6 +308,159 @@ final class OpenChatSessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionEventCoordinatorUsesIndependentDurableCursor() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "goku.session-event-tests-\(UUID().uuidString)"))
+        let server = try XCTUnwrap(URL(string: "https://example.test/"))
+        let streamClient = SpySSEStreamingClient()
+        let cursorStore = SessionEventCursorStore(defaults: defaults)
+        cursorStore.save(
+            eventID: "stream-A:9",
+            server: server,
+            profile: "work",
+            sessionID: "session-abc"
+        )
+        var appliedSnapshots = 0
+        let coordinator = SessionEventStreamCoordinator(
+            server: server,
+            sessionID: "session-abc",
+            profile: "work",
+            streamClient: streamClient,
+            userDefaults: defaults
+        )
+        coordinator.onSnapshot = { snapshot in
+            appliedSnapshots += 1
+            XCTAssertEqual(snapshot.sessionId, "session-abc")
+            return true
+        }
+
+        coordinator.start()
+        XCTAssertEqual(streamClient.startedURLs.last?.path, "/api/sessions/session-abc/events")
+        XCTAssertEqual(streamClient.resumeEventIDs.last ?? nil, "stream-A:9")
+
+        streamClient.emit(.token("journal event"), lastEventID: "stream-A:10")
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
+            "stream-A:10"
+        )
+
+        streamClient.emit(.token("duplicate event"), lastEventID: "stream-A:10")
+        streamClient.emit(.token("late event"), lastEventID: "stream-A:8")
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
+            "stream-A:10"
+        )
+
+        streamClient.emit(.token("new stream event"), lastEventID: "stream-B:1")
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
+            "stream-B:1"
+        )
+        streamClient.emit(.token("old stream replay"), lastEventID: "stream-A:10")
+        streamClient.emit(.token("opaque one"), lastEventID: "opaque-1")
+        streamClient.emit(.token("opaque two"), lastEventID: "opaque-2")
+        streamClient.emit(.token("opaque replay"), lastEventID: "opaque-1")
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
+            "opaque-2"
+        )
+
+        streamClient.emit(
+            .sessionSnapshot(SessionSummary(sessionId: "session-abc", title: "Updated")),
+            lastEventID: nil
+        )
+
+        XCTAssertEqual(appliedSnapshots, 1)
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
+            nil
+        )
+        coordinator.start()
+        XCTAssertNil(streamClient.resumeEventIDs.last ?? nil)
+        XCTAssertNil(
+            cursorStore.load(server: server, profile: "other", sessionID: "session-abc")
+        )
+    }
+
+    @MainActor
+    func testSessionEventCoordinatorReconnectsAfterTerminalAndStopCancelsRetry() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "goku.session-event-reconnect-tests-\(UUID().uuidString)"))
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let streamClient = SpySSEStreamingClient()
+        let coordinator = SessionEventStreamCoordinator(
+            server: server,
+            sessionID: "session-abc",
+            profile: nil,
+            streamClient: streamClient,
+            userDefaults: defaults
+        )
+        var delivered: [SSEEvent] = []
+        coordinator.onEvent = { delivered.append($0) }
+
+        coordinator.start()
+        streamClient.emit(.streamEnd, lastEventID: "stream-A:10")
+        try await Task.sleep(nanoseconds: 350_000_000)
+        XCTAssertEqual(streamClient.startedURLs.count, 2)
+        XCTAssertEqual(streamClient.resumeEventIDs.last ?? nil, "stream-A:10")
+        XCTAssertEqual(delivered, [.streamEnd])
+
+        coordinator.stop()
+        streamClient.emit(.transportError("late"), lastEventID: nil, onConnection: 1)
+        try await Task.sleep(nanoseconds: 350_000_000)
+        XCTAssertEqual(streamClient.startedURLs.count, 2)
+    }
+
+    @MainActor
+    func testSyntheticSessionDoesNotStartSessionEventSync() throws {
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = ChatViewModel(
+            session: SessionSummary(sessionId: nil),
+            server: server,
+            sessionEventStreamClient: streamClient
+        )
+
+        viewModel.startSessionEventSync()
+
+        XCTAssertTrue(streamClient.startedURLs.isEmpty)
+        XCTAssertEqual(streamClient.stopCount, 1)
+    }
+
+    @MainActor
+    func testSessionEventCoordinatorDropsCallbackFromReplacedConnection() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "goku.session-event-stale-tests-\(UUID().uuidString)"))
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let streamClient = SpySSEStreamingClient()
+        var appliedSnapshots = 0
+        let coordinator = SessionEventStreamCoordinator(
+            server: server,
+            sessionID: "session-abc",
+            profile: nil,
+            streamClient: streamClient,
+            userDefaults: defaults
+        )
+        coordinator.onSnapshot = { _ in
+            appliedSnapshots += 1
+            return true
+        }
+
+        coordinator.start()
+        coordinator.start()
+        streamClient.emit(
+            .sessionSnapshot(SessionSummary(sessionId: "session-abc")),
+            lastEventID: "stale",
+            onConnection: 0
+        )
+        XCTAssertEqual(appliedSnapshots, 0)
+
+        streamClient.emit(
+            .sessionSnapshot(SessionSummary(sessionId: "session-abc")),
+            lastEventID: "current",
+            onConnection: 1
+        )
+        XCTAssertEqual(appliedSnapshots, 1)
+    }
+
+    @MainActor
     func makeViewModel(
         sessionID: String,
         activeStreamID: String? = nil,
@@ -350,16 +503,36 @@ final class OpenChatSessionStoreTests: XCTestCase {
 
 private final class SpySSEStreamingClient: SSEStreamingClient {
     private(set) var startedURLs: [URL] = []
+    private(set) var resumeEventIDs: [String?] = []
     private(set) var stopCount = 0
     private(set) var lastEventID: String?
-    private var onEvent: (@MainActor (SSEEvent) -> Void)?
+    private var eventHandlers: [@MainActor (SSEEvent, String?) -> Void] = []
     var automaticallyFlushPendingStreamingContent = true
     var flushPendingStreamingContent: (() -> Void)?
 
     func start(url: URL, onEvent: @escaping @MainActor (SSEEvent) -> Void) {
+        start(url: url, resumeFrom: nil, onEvent: onEvent)
+    }
+
+    func start(
+        url: URL,
+        resumeFrom eventID: String?,
+        onEvent: @escaping @MainActor (SSEEvent) -> Void
+    ) {
+        start(url: url, resumeFrom: eventID) { event, _ in
+            onEvent(event)
+        }
+    }
+
+    func start(
+        url: URL,
+        resumeFrom eventID: String?,
+        onEventWithID onEvent: @escaping @MainActor (SSEEvent, String?) -> Void
+    ) {
         startedURLs.append(url)
-        lastEventID = nil
-        self.onEvent = onEvent
+        resumeEventIDs.append(eventID)
+        lastEventID = eventID
+        eventHandlers.append(onEvent)
     }
 
     func stop() {
@@ -367,9 +540,15 @@ private final class SpySSEStreamingClient: SSEStreamingClient {
     }
 
     @MainActor
-    func emit(_ event: SSEEvent, lastEventID: String? = nil) {
+    func emit(
+        _ event: SSEEvent,
+        lastEventID: String? = nil,
+        onConnection index: Int? = nil
+    ) {
         self.lastEventID = lastEventID
-        onEvent?(event)
+        let handler = index.flatMap { eventHandlers.indices.contains($0) ? eventHandlers[$0] : nil }
+            ?? eventHandlers.last
+        handler?(event, lastEventID)
         if automaticallyFlushPendingStreamingContent {
             flushPendingStreamingContent?()
         }
