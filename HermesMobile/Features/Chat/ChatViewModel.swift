@@ -465,6 +465,10 @@ final class ChatViewModel {
     private(set) var hasActivatedGoalCommand = false
 
     private let sessionID: String?
+    var hasServerBackedSession: Bool {
+        guard let sessionID else { return false }
+        return !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var currentWorkspace: String?
     private var currentModel: String?
     private var currentModelProvider: String?
@@ -708,9 +712,18 @@ final class ChatViewModel {
             return false
         }
 
-        currentWorkspace = snapshot.workspace
-        currentModel = snapshot.model
-        currentModelProvider = snapshot.modelProvider
+        // Snapshots are metadata deltas in the current server contract. Older or
+        // partially populated snapshots may omit fields; absence must not erase
+        // the warm session's known values while transcript reconciliation runs.
+        if let workspace = snapshot.workspace {
+            currentWorkspace = workspace
+        }
+        if let model = snapshot.model {
+            currentModel = model
+        }
+        if let provider = snapshot.modelProvider {
+            currentModelProvider = provider
+        }
         currentProfile = snapshot.profile ?? currentProfile
         if let title = snapshot.title {
             displayTitle = Self.displayTitle(from: title)
@@ -2914,7 +2927,7 @@ final class ChatViewModel {
     private func switchReasoningFromSlashCommand(_ args: String) async -> SlashCommandExecutionResult {
         let reasoning = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !reasoning.isEmpty else {
-            return .unsupported(friendlyMessage: String(localized: "Usage: /reasoning show|hide|none|minimal|low|medium|high|xhigh"))
+            return .unsupported(friendlyMessage: String(localized: "Usage: /reasoning show|hide|none|minimal|low|medium|high|xhigh|max"))
         }
 
         guard canRunConfigurationSlashCommand(String(localized: "change reasoning")) else {
@@ -5111,7 +5124,7 @@ final class ChatViewModel {
     }
 
     private static let reasoningDisplayArgs: Set<String> = ["show", "hide", "on", "off"]
-    private static let reasoningEffortArgs: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh"]
+    private static let reasoningEffortArgs: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
     private static let personalityClearArgs: Set<String> = ["none", "default", "clear"]
 
     private static func btwMessageText(question: String, answer: String?, isLoading: Bool) -> String {

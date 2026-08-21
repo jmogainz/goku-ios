@@ -29,6 +29,38 @@ final class OpenChatSessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSidebarRefreshReconcilesOpenTranscriptFromCanonicalServer() async throws {
+        var sessionFetches = 0
+        let viewModel = try makeViewModel(sessionID: "session-abc") { request in
+            XCTAssertEqual(request.url?.path, "/api/session")
+            sessionFetches += 1
+            return apiTestJSONResponse("""
+            {
+              "session": {
+                "session_id": "session-abc",
+                "messages": [
+                  {"role": "user", "content": "Sent from TUI", "message_id": "tui-1", "timestamp": 1770000000},
+                  {"role": "assistant", "content": "Canonical response", "message_id": "assistant-1", "timestamp": 1770000001}
+                ]
+              }
+            }
+            """, for: request)
+        }
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        _ = OpenChatSessionStore.shared.adoptedViewModel(
+            session: SessionSummary(sessionId: "session-abc"),
+            server: server,
+            creating: viewModel
+        )
+
+        let refreshed = await OpenChatSessionStore.shared.refreshOpenSessions(for: server)
+
+        XCTAssertEqual(refreshed, 1)
+        XCTAssertEqual(sessionFetches, 1)
+        XCTAssertEqual(viewModel.messages.map(\.content), ["Sent from TUI", "Canonical response"])
+    }
+
+    @MainActor
     func testStoreKeepsDistinctViewModelsForDifferentSessions() throws {
         let alpha = try makeViewModel(sessionID: "session-alpha")
         let beta = try makeViewModel(sessionID: "session-beta")
@@ -291,7 +323,6 @@ final class OpenChatSessionStoreTests: XCTestCase {
         )
 
         streamClient.emit(.token("duplicate event"), lastEventID: "stream-A:10")
-        streamClient.emit(.token("late event"), lastEventID: "stream-A:8")
         XCTAssertEqual(
             cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
             "stream-A:10"

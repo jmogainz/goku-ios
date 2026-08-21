@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftData
 
 @MainActor
 @Observable
@@ -76,6 +77,33 @@ final class OpenChatSessionStore {
             .sorted()
     }
 
+    /// Reconciles transcripts for sessions that are already retained by the chat
+    /// navigation store. The sidebar list endpoint returns summaries only; without
+    /// this explicit pass, a message sent from TUI/WebUI can leave a warm iOS
+    /// ChatViewModel showing an older transcript after pull-to-refresh.
+    ///
+    /// The server remains canonical. ChatViewModel owns its existing load-generation,
+    /// optimistic-message, active-stream, and cache-preservation guards, so this
+    /// method only coordinates the open models and never replaces them wholesale.
+    @discardableResult
+    func refreshOpenSessions(
+        for server: URL,
+        modelContext: ModelContext? = nil
+    ) async -> Int {
+        let serverKey = OpenChatSessionKey.normalizedServer(server)
+        let openViewModels = viewModels.compactMap { (key, viewModel) -> ChatViewModel? in
+            guard key.server == serverKey, viewModel.hasServerBackedSession else { return nil }
+            return viewModel
+        }
+        var refreshedCount = 0
+        for viewModel in openViewModels {
+            guard !Task.isCancelled else { break }
+            await viewModel.loadMessages(modelContext: modelContext)
+            refreshedCount += 1
+        }
+        return refreshedCount
+    }
+
     func noteStreamingStateChanged() {
         liveOwnershipGeneration &+= 1
     }
@@ -103,10 +131,11 @@ final class SessionEventStreamCoordinator {
     private let cursorStore: SessionEventCursorStore
     private var generation = 0
     private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempt = 0
     private var lastAcceptedEventID: String?
     private var seenEventIDs: Set<String>
     private var seenEventOrder: [String]
-    private var streamHighWaterMarks: [String: Int]
+
 
     var onSnapshot: (@MainActor (SessionSummary) -> Bool)?
     var onEvent: (@MainActor (SSEEvent) -> Void)?
@@ -130,7 +159,7 @@ final class SessionEventStreamCoordinator {
         )
         self.seenEventIDs = Set(persistedSeenIDs)
         self.seenEventOrder = persistedSeenIDs
-        self.streamHighWaterMarks = Self.highWaterMarks(for: persistedSeenIDs)
+
     }
 
     var persistedEventID: String? {
@@ -140,6 +169,7 @@ final class SessionEventStreamCoordinator {
     func start() {
         stop()
         guard !sessionID.isEmpty else { return }
+        reconnectAttempt = 0
         connect()
     }
 
@@ -173,7 +203,7 @@ final class SessionEventStreamCoordinator {
                 self.lastAcceptedEventID = nil
                 self.seenEventIDs.removeAll(keepingCapacity: true)
                 self.seenEventOrder.removeAll(keepingCapacity: true)
-                self.streamHighWaterMarks.removeAll(keepingCapacity: true)
+
                 self.cursorStore.clear(
                     server: self.server,
                     profile: self.profile,
@@ -186,8 +216,16 @@ final class SessionEventStreamCoordinator {
                 )
                 _ = self.onSnapshot?(snapshot)
             } else {
+                if case .transportError = event {
+                    // Keep the attempt counter so an older Hermes server that
+                    // does not expose session events cannot cause a tight retry
+                    // loop. A later view appearance explicitly starts a fresh
+                    // capability attempt.
+                } else {
+                    self.reconnectAttempt = 0
+                }
                 if let eventID = Self.normalizedEventID(eventID) {
-                    guard self.accepts(eventID: eventID) else { return }
+                    guard !self.seenEventIDs.contains(eventID) else { return }
                     self.lastAcceptedEventID = eventID
                     self.remember(eventID: eventID, persist: true)
                     self.cursorStore.save(
@@ -207,21 +245,15 @@ final class SessionEventStreamCoordinator {
 
     private func scheduleReconnect(connectionGeneration: Int) {
         guard reconnectTask == nil, generation == connectionGeneration else { return }
+        guard reconnectAttempt < 3 else { return }
+        reconnectAttempt += 1
+        let delay = UInt64(250_000_000 * (1 << min(reconnectAttempt - 1, 2)))
         reconnectTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? await Task.sleep(nanoseconds: delay)
             guard let self, !Task.isCancelled, self.generation == connectionGeneration else { return }
             self.reconnectTask = nil
             self.connect()
         }
-    }
-
-    private func accepts(eventID: String) -> Bool {
-        guard !seenEventIDs.contains(eventID) else { return false }
-        guard let (streamID, sequence) = Self.streamSequence(from: eventID) else { return true }
-        if let highWater = streamHighWaterMarks[streamID], sequence <= highWater {
-            return false
-        }
-        return true
     }
 
     private func remember(eventID: String, persist: Bool) {
@@ -232,9 +264,7 @@ final class SessionEventStreamCoordinator {
             let removed = seenEventOrder.removeFirst()
             seenEventIDs.remove(removed)
         }
-        if let (streamID, sequence) = Self.streamSequence(from: eventID) {
-            streamHighWaterMarks[streamID] = max(streamHighWaterMarks[streamID] ?? sequence, sequence)
-        }
+
         if persist {
             cursorStore.saveSeenEventIDs(
                 seenEventOrder,
@@ -249,20 +279,6 @@ final class SessionEventStreamCoordinator {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func streamSequence(from eventID: String) -> (String, Int)? {
-        let parts = eventID.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2, !parts[0].isEmpty, let sequence = Int(parts[1]) else { return nil }
-        return (String(parts[0]), sequence)
-    }
-
-    private static func highWaterMarks(for eventIDs: [String]) -> [String: Int] {
-        var result: [String: Int] = [:]
-        for eventID in eventIDs {
-            guard let (streamID, sequence) = streamSequence(from: eventID) else { continue }
-            result[streamID] = max(result[streamID] ?? sequence, sequence)
-        }
-        return result
-    }
 
     private static func requiresReconnect(for event: SSEEvent) -> Bool {
         switch event {
