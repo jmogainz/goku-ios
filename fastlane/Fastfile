@@ -45,13 +45,17 @@ platform :ios do
     UI.success("Uploading #{bundle_id} #{marketing_version} (#{build_number}) as internal-only TestFlight")
 
     xcargs = [
+      "DEVELOPMENT_TEAM=#{team_id}",
+      "CURRENT_PROJECT_VERSION=#{build_number}"
+    ].join(" ")
+
+    export_xcargs = [
       "-allowProvisioningUpdates",
-      "CODE_SIGN_IDENTITY='Apple Distribution'",
       "-authenticationKeyPath #{key_path}",
       "-authenticationKeyID #{key_id}",
       "-authenticationKeyIssuerID #{issuer_id}",
       "DEVELOPMENT_TEAM=#{team_id}",
-      "CURRENT_PROJECT_VERSION=#{build_number}"
+      "CODE_SIGN_IDENTITY='Apple Distribution'"
     ].join(" ")
 
     ipa = build_app(
@@ -65,6 +69,8 @@ platform :ios do
       export_method: "app-store",
       export_options: export_options,
       xcargs: xcargs,
+      export_xcargs: export_xcargs,
+      skip_codesigning: true,
       skip_package_pkg: true,
       include_bitcode: false
     )
