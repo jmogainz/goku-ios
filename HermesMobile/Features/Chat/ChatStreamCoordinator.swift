@@ -285,15 +285,19 @@ final class ChatStreamCoordinator {
         }
     }
 
-    func reconnectIfNeeded(modelContext: ModelContext? = nil) async {
+    @discardableResult
+    func reconnectIfNeeded(modelContext: ModelContext? = nil) async -> Bool {
         await reconnectIfNeeded(modelContext: modelContext, retryAttempt: 0)
     }
 
+    /// Returns true when this reconnect path had to reload the transcript itself.
+    /// Callers that already own an initial/foreground load can use that result to
+    /// avoid issuing a second lock-bound `/api/session` request.
     private func reconnectIfNeeded(
         modelContext: ModelContext?,
         retryAttempt: Int
-    ) async {
-        guard let activeStreamID, isConnectionSuspended else { return }
+    ) async -> Bool {
+        guard let activeStreamID, isConnectionSuspended else { return false }
         reconnectRetryTask?.cancel()
         reconnectRetryTask = nil
         let generation = runGeneration
@@ -305,7 +309,7 @@ final class ChatStreamCoordinator {
                   self.reconnectLifecycleGeneration == lifecycleGeneration,
                   self.activeStreamID == activeStreamID,
                   isConnectionSuspended
-            else { return }
+            else { return false }
 
             if response.active == true {
                 let streamIDToResume = activeStreamID
@@ -327,15 +331,12 @@ final class ChatStreamCoordinator {
                         replayAfterSeq: replayAfterSeq,
                         recoveryState: .reconnecting
                     )
+                    return false
                 } else {
                     // Compatibility path for servers that explicitly report no run
-                    // journal: reconcile the transcript before opening a live-only SSE.
-                    await delegate?.streamCoordinatorLoadMessages(modelContext: modelContext)
-                    guard !Task.isCancelled,
-                          self.reconnectLifecycleGeneration == lifecycleGeneration,
-                          self.activeStreamID == activeStreamID,
-                          isConnectionSuspended
-                    else { return }
+                    // journal: attach a live-only SSE first. The transcript request
+                    // can be blocked by the agent's session lock; it must not delay
+                    // the first visible in-progress response state.
                     if delegate?.streamCoordinatorStreamingAssistantMessageID == nil {
                         restoreSnapshotIfAvailable(streamID: streamIDToResume)
                     }
@@ -343,46 +344,54 @@ final class ChatStreamCoordinator {
                         delegate?.streamCoordinatorStreamingAssistantMessageID = delegate?.streamCoordinatorLatestAssistantMessageID()
                     }
                     isConnectionSuspended = false
-                    start(streamID: streamIDToResume)
+                    start(streamID: streamIDToResume, recoveryState: .reconnecting)
+                    await delegate?.streamCoordinatorLoadMessages(modelContext: modelContext)
+                    guard !Task.isCancelled,
+                          self.reconnectLifecycleGeneration == lifecycleGeneration,
+                          self.activeStreamID == activeStreamID
+                    else { return true }
+                    return true
                 }
             } else if response.replayAvailable == true {
                 let replayAfterSeq = Self.runJournalReplayAfterSeq(from: lastEventID) ?? 0
                 self.activeStreamID = activeStreamID
                 isConnectionSuspended = false
                 start(streamID: activeStreamID, replayAfterSeq: replayAfterSeq)
+                return false
             } else {
                 await delegate?.streamCoordinatorLoadMessages(modelContext: modelContext)
                 // Bail if a concurrent completion/cancel/new run finalized or
                 // replaced this run during the load (see canFinalizeRunAfterLoad).
-                guard canFinalizeRunAfterLoad(streamID: activeStreamID, capturedGeneration: generation) else { return }
+                guard canFinalizeRunAfterLoad(streamID: activeStreamID, capturedGeneration: generation) else { return true }
 
                 // #246: the server reports the run is over. Finalize it (and end
                 // the Live Activity) instead of re-arming and leaving it dangling
-                // on "running" when no assistant reply surfaced.
+                // "running" when no assistant reply surfaced.
                 finalizeInactiveStream(streamID: activeStreamID)
+                return true
             }
         } catch {
             guard !Task.isCancelled,
                   self.reconnectLifecycleGeneration == lifecycleGeneration,
                   self.activeStreamID == activeStreamID,
                   isConnectionSuspended
-            else { return }
+            else { return false }
             if (error as? APIError)?.indicatesMissingStream == true {
                 await delegate?.streamCoordinatorLoadMessages(modelContext: modelContext)
-                guard canFinalizeRunAfterLoad(streamID: activeStreamID, capturedGeneration: generation) else { return }
+                guard canFinalizeRunAfterLoad(streamID: activeStreamID, capturedGeneration: generation) else { return true }
                 finalizeInactiveStream(streamID: activeStreamID)
-                return
+                return true
             }
-            guard !Self.isCancellationError(error) else { return }
+            guard !Self.isCancellationError(error) else { return false }
             guard Self.shouldRetryReconnect(after: error) else {
                 delegate?.streamCoordinatorDidReceiveRecoveryError(error)
-                return
+                return false
             }
             if retryAttempt >= Self.reconnectRetryLimit {
                 if !CacheFallbackPolicy.isTransientBlip(error) {
                     delegate?.streamCoordinatorDidReceiveRecoveryError(error)
                 }
-                return
+                return false
             }
             scheduleReconnectRetry(
                 streamID: activeStreamID,
@@ -391,6 +400,7 @@ final class ChatStreamCoordinator {
                 modelContext: modelContext,
                 retryAttempt: retryAttempt + 1
             )
+            return false
         }
     }
 
@@ -421,7 +431,7 @@ final class ChatStreamCoordinator {
             }
 
             self.reconnectRetryTask = nil
-            await self.reconnectIfNeeded(
+            _ = await self.reconnectIfNeeded(
                 modelContext: modelContext,
                 retryAttempt: retryAttempt
             )
@@ -637,6 +647,10 @@ final class ChatStreamCoordinator {
             if delegate?.streamCoordinatorUpdateTitle(payload) == true {
                 markProgress()
             }
+        case .sessionSnapshot:
+            // Session-wide snapshots are owned by SessionEventStreamCoordinator.
+            // A chat stream must not mutate metadata or transcript state from them.
+            break
         case .metering(let payload):
             guard payload.sessionId == nil || payload.sessionId == delegate?.streamCoordinatorSessionID else {
                 break

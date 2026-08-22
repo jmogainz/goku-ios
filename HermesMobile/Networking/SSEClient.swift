@@ -7,7 +7,37 @@ protocol SSEStreamingClient: AnyObject {
     var lastEventID: String? { get }
 
     func start(url: URL, onEvent: @escaping @MainActor (SSEEvent) -> Void)
+    func start(
+        url: URL,
+        resumeFrom eventID: String?,
+        onEvent: @escaping @MainActor (SSEEvent) -> Void
+    )
+    func start(
+        url: URL,
+        resumeFrom eventID: String?,
+        onEventWithID: @escaping @MainActor (SSEEvent, String?) -> Void
+    )
     func stop()
+}
+
+extension SSEStreamingClient {
+    func start(
+        url: URL,
+        resumeFrom _: String?,
+        onEvent: @escaping @MainActor (SSEEvent) -> Void
+    ) {
+        start(url: url, onEvent: onEvent)
+    }
+
+    func start(
+        url: URL,
+        resumeFrom _: String?,
+        onEventWithID: @escaping @MainActor (SSEEvent, String?) -> Void
+    ) {
+        start(url: url, onEvent: { event in
+            onEventWithID(event, nil)
+        })
+    }
 }
 
 @MainActor
@@ -28,8 +58,27 @@ final class SSEClient: SSEStreamingClient {
     }
 
     func start(url: URL, onEvent: @escaping @MainActor (SSEEvent) -> Void) {
+        start(url: url, resumeFrom: nil, onEvent: onEvent)
+    }
+
+    func start(
+        url: URL,
+        resumeFrom eventID: String?,
+        onEvent: @escaping @MainActor (SSEEvent) -> Void
+    ) {
+        start(url: url, resumeFrom: eventID) { event, _ in
+            onEvent(event)
+        }
+    }
+
+    func start(
+        url: URL,
+        resumeFrom eventID: String?,
+        onEventWithID: @escaping @MainActor (SSEEvent, String?) -> Void
+    ) {
         stop()
-        lastEventID = nil
+        let normalizedResumeID = Self.normalizedEventID(eventID)
+        lastEventID = normalizedResumeID
         let connectionID = UUID()
         activeConnectionID = connectionID
 
@@ -40,17 +89,16 @@ final class SSEClient: SSEStreamingClient {
             onEventID: { [weak self] eventID in
                 self?.lastEventID = eventID
             },
-            onEvent: onEvent
+            onEvent: onEventWithID
         )
         var config = EventSource.Config(handler: handler, url: url)
         config.connectionErrorHandler = { _ in .shutdown }
         // Custom headers merged underneath the built-ins so the built-ins win on
         // collision; an empty list leaves the built-in three unchanged (#255).
-        config.headers = customHeaderProvider().merged(under: [
-            "Accept": "text/event-stream",
-            "Cache-Control": "no-cache, no-transform",
-            "Accept-Encoding": "identity"
-        ])
+        config.headers = Self.requestHeaders(
+            customHeaders: customHeaderProvider(),
+            resumeFrom: normalizedResumeID
+        )
 
         let configuration = baseConfiguration.copy() as? URLSessionConfiguration ?? .default
         configuration.httpCookieStorage = .shared
@@ -62,6 +110,27 @@ final class SSEClient: SSEStreamingClient {
         let source = EventSource(config: config)
         eventSource = source
         source.start()
+    }
+
+    static func requestHeaders(
+        customHeaders: [CustomHeader],
+        resumeFrom eventID: String?
+    ) -> [String: String] {
+        var headers = customHeaders.merged(under: [
+            "Accept": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "Accept-Encoding": "identity"
+        ])
+        if let eventID = normalizedEventID(eventID) {
+            headers["Last-Event-ID"] = eventID
+        }
+        return headers
+    }
+
+    private static func normalizedEventID(_ eventID: String?) -> String? {
+        guard let eventID else { return nil }
+        let trimmed = eventID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     func stop() {
@@ -83,6 +152,7 @@ enum SSEEvent: Equatable {
     case toolStarted(ToolStreamEvent)
     case toolCompleted(ToolStreamEvent)
     case title(TitleStreamEvent)
+    case sessionSnapshot(SessionSummary)
     case metering(MeteringStreamEvent)
     case done(DoneStreamEvent)
     case approvalPending(ApprovalPendingResponse)
@@ -269,6 +339,18 @@ struct SSEEventDecoder {
         case "title":
             let payload = decodePayload(TitleStreamEvent.self, eventType: eventType, from: eventData, decoder: decoder)
             return .title(payload ?? TitleStreamEvent())
+        case "session_snapshot":
+            let snapshotDecoder = JSONDecoder()
+            snapshotDecoder.keyDecodingStrategy = .convertFromSnakeCase
+            guard let payload = decodePayload(
+                SessionSnapshotPayload.self,
+                eventType: eventType,
+                from: eventData,
+                decoder: snapshotDecoder
+            ), let session = payload.session else {
+                return .ignored
+            }
+            return .sessionSnapshot(session)
         case "metering":
             let payload = decodePayload(
                 MeteringStreamEvent.self,
@@ -388,12 +470,12 @@ private extension String {
 private final class SSEEventHandler: EventHandler {
     private let shouldDeliver: @MainActor () -> Bool
     private let onEventID: @MainActor (String) -> Void
-    private let onEvent: @MainActor (SSEEvent) -> Void
+    private let onEvent: @MainActor (SSEEvent, String?) -> Void
 
     init(
         shouldDeliver: @escaping @MainActor () -> Bool,
         onEventID: @escaping @MainActor (String) -> Void,
-        onEvent: @escaping @MainActor (SSEEvent) -> Void
+        onEvent: @escaping @MainActor (SSEEvent, String?) -> Void
     ) {
         self.shouldDeliver = shouldDeliver
         self.onEventID = onEventID
@@ -405,7 +487,7 @@ private final class SSEEventHandler: EventHandler {
     func onClosed() {
         Task { @MainActor in
             guard shouldDeliver() else { return }
-            onEvent(.transportError(URLError(.networkConnectionLost).localizedDescription))
+            onEvent(.transportError(URLError(.networkConnectionLost).localizedDescription), nil)
         }
     }
 
@@ -418,27 +500,31 @@ private final class SSEEventHandler: EventHandler {
             if !eventID.isEmpty {
                 onEventID(eventID)
             }
-            onEvent(event)
+            onEvent(event, eventID.isEmpty ? nil : eventID)
         }
     }
 
     func onComment(comment _: String) {
         Task { @MainActor in
             guard shouldDeliver() else { return }
-            onEvent(.heartbeat)
+            onEvent(.heartbeat, nil)
         }
     }
 
     func onError(error: Error) {
         Task { @MainActor in
             guard shouldDeliver() else { return }
-            onEvent(.transportError(error.localizedDescription))
+            onEvent(.transportError(error.localizedDescription), nil)
         }
     }
 }
 
 private struct TokenPayload: Decodable {
     let text: String?
+}
+
+private struct SessionSnapshotPayload: Decodable {
+    let session: SessionSummary?
 }
 
 private struct ReasoningPayload: Decodable {

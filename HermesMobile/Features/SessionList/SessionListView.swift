@@ -288,7 +288,7 @@ struct SessionListView: View {
                 )
             }
             .refreshable {
-                await refreshSessionsAndActiveProfile()
+                await refreshSessionsAndActiveProfile(reconcileOpenTranscripts: true)
             }
             .modifier(
                 SessionActionConfirmations(
@@ -949,10 +949,15 @@ struct SessionListView: View {
         )
     }
 
-    private func refreshSessionsAndActiveProfile() async {
+    private func refreshSessionsAndActiveProfile(reconcileOpenTranscripts: Bool = false) async {
         await loadSessions()
         guard !Task.isCancelled else { return }
         await viewModel.loadActiveProfile()
+        guard !Task.isCancelled, reconcileOpenTranscripts else { return }
+        _ = await OpenChatSessionStore.shared.refreshOpenSessions(
+            for: server,
+            modelContext: modelContext
+        )
     }
 
     private func closeSearch() {

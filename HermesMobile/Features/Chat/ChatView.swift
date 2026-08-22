@@ -647,6 +647,7 @@ struct ChatView: View {
                         onAPIError(lastError)
                     }
                 }
+
             }
             .onChange(of: viewModel.responseCompletionHapticTrigger) {
                 guard viewModel.responseCompletionHapticTrigger > 0 else { return }
@@ -1367,9 +1368,19 @@ struct ChatView: View {
            ChatInitialAppearancePolicy.shouldReloadTranscriptOnAppear(
             hasPreservedTranscript: viewModel.hasPreservedTranscript
            ) {
-            async let messages: Void = loadMessages(appliesInitialFocus: false, reconnectsAfterLoad: false)
-            async let stream: Void = viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
-            _ = await (messages, stream)
+            if viewModel.activeStreamID != nil {
+                // A known external run may be holding the server session lock.
+                // Attach SSE first; only then reconcile the transcript so the
+                // user sees live progress instead of a lone prompt bubble.
+                let didLoadTranscript = await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+                if !didLoadTranscript {
+                    await loadMessages(appliesInitialFocus: false, reconnectsAfterLoad: false)
+                }
+            } else {
+                async let messages: Void = loadMessages(appliesInitialFocus: false, reconnectsAfterLoad: false)
+                async let stream: Bool = viewModel.reconnectStreamIfNeeded(modelContext: modelContext)
+                _ = await (messages, stream)
+            }
             guard !Task.isCancelled else { return }
         } else {
             await viewModel.reconnectStreamIfNeeded(modelContext: modelContext)

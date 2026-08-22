@@ -465,6 +465,10 @@ final class ChatViewModel {
     private(set) var hasActivatedGoalCommand = false
 
     private let sessionID: String?
+    var hasServerBackedSession: Bool {
+        guard let sessionID else { return false }
+        return !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var currentWorkspace: String?
     private var currentModel: String?
     private var currentModelProvider: String?
@@ -476,6 +480,7 @@ final class ChatViewModel {
     private let pendingActionCoordinator: ChatPendingActionCoordinator
     private let attachmentCoordinator: ChatAttachmentCoordinator
     private let btwStreamClient: SSEStreamingClient
+    private let sessionEventStreamCoordinator: SessionEventStreamCoordinator
     private let liveActivityManager: any AgentLiveActivityManaging
     private let speechSynthesizerFactory: () -> any ChatSpeechSynthesizing
     private let listenAudioSession: any ListenAudioSessionControlling
@@ -539,6 +544,8 @@ final class ChatViewModel {
     private var activeBtwAnswer = ""
     private var backgroundPromptsByTaskID: [String: String] = [:]
     @ObservationIgnored private var backgroundPollTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionEventReconcileTask: Task<Void, Never>?
+    @ObservationIgnored private var didStartSessionEventSync = false
     @ObservationIgnored private var streamStatusWatchTask: Task<Void, Never>?
     private var isRefreshingCompletedResponseTitle = false
     private var isActiveStreamReplayConnection: Bool { streamCoordinator.isReplayConnection }
@@ -559,6 +566,7 @@ final class ChatViewModel {
         approvalStreamClient: SSEStreamingClient? = nil,
         clarifyStreamClient: SSEStreamingClient? = nil,
         btwStreamClient: SSEStreamingClient? = nil,
+        sessionEventStreamClient: SSEStreamingClient? = nil,
         liveActivityManager: (any AgentLiveActivityManaging)? = nil,
         showsLiveActivityResponseExcerpts: Bool = false,
         pollingIntervals: ChatPollingIntervals = .standard,
@@ -596,6 +604,13 @@ final class ChatViewModel {
         )
         self.attachmentCoordinator = ChatAttachmentCoordinator(client: resolvedClient)
         self.btwStreamClient = btwStreamClient ?? SSEClient()
+        self.sessionEventStreamCoordinator = SessionEventStreamCoordinator(
+            server: server,
+            sessionID: session.sessionId ?? "",
+            profile: session.profile,
+            streamClient: sessionEventStreamClient ?? SSEClient(),
+            userDefaults: userDefaults
+        )
         self.liveActivityManager = resolvedLiveActivityManager
         self.showsLiveActivityResponseExcerpts = showsLiveActivityResponseExcerpts
         self.pollingIntervals = pollingIntervals
@@ -622,6 +637,12 @@ final class ChatViewModel {
         self.serverTTSAudioPlayerFactory = serverTTSAudioPlayerFactory
             ?? { try ServerTTSAudioPlayer(data: $0) }
         displayTitle = Self.displayTitle(from: session.title)
+        self.sessionEventStreamCoordinator.onSnapshot = { [weak self] snapshot in
+            self?.applySessionEventSnapshot(snapshot) ?? false
+        }
+        self.sessionEventStreamCoordinator.onEvent = { [weak self] event in
+            self?.handleSessionEvent(event)
+        }
         self.streamCoordinator.attach(delegate: self)
         self.pendingActionCoordinator.delegate = self
         self.attachmentCoordinator.delegate = self
@@ -630,6 +651,7 @@ final class ChatViewModel {
 
     deinit {
         backgroundPollTask?.cancel()
+        sessionEventReconcileTask?.cancel()
         streamStatusWatchTask?.cancel()
         pendingStreamingScrollTriggerTask?.cancel()
         pendingStreamingContentFlushTask?.cancel()
@@ -655,6 +677,74 @@ final class ChatViewModel {
 
     nonisolated static func resetActiveStreamSnapshotsForTesting() {
         ActiveChatStreamSnapshotStore.shared.removeAll()
+    }
+
+    func startSessionEventSync() {
+        guard !didStartSessionEventSync else { return }
+        didStartSessionEventSync = true
+        sessionEventStreamCoordinator.start()
+    }
+
+    func stopSessionEventSync() {
+        didStartSessionEventSync = false
+        sessionEventReconcileTask?.cancel()
+        sessionEventReconcileTask = nil
+        sessionEventStreamCoordinator.stop()
+    }
+
+    private func handleSessionEvent(_ event: SSEEvent) {
+        switch event {
+        case .done, .streamEnd, .cancelled, .error, .lostWorkerBookkeeping:
+            scheduleSessionEventReconcile()
+        default:
+            break
+        }
+    }
+
+    private func scheduleSessionEventReconcile() {
+        sessionEventReconcileTask?.cancel()
+        sessionEventReconcileTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.loadMessages()
+        }
+    }
+
+    private func applySessionEventSnapshot(_ snapshot: SessionSummary) -> Bool {
+        let snapshotID = (snapshot.sessionId ?? snapshot.id).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sessionID, snapshotID == sessionID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+
+        // Snapshots are metadata deltas in the current server contract. Older or
+        // partially populated snapshots may omit fields; absence must not erase
+        // the warm session's known values while transcript reconciliation runs.
+        if let workspace = snapshot.workspace {
+            currentWorkspace = workspace
+        }
+        if let model = snapshot.model {
+            currentModel = model
+        }
+        if let provider = snapshot.modelProvider {
+            currentModelProvider = provider
+        }
+        currentProfile = snapshot.profile ?? currentProfile
+        if let title = snapshot.title {
+            displayTitle = Self.displayTitle(from: title)
+        }
+
+        // A session snapshot is metadata, not an authoritative transcript. Reconcile
+        // the transcript separately and keep the visible/live state until that load
+        // wins its own generation check.
+        if activeStreamID == nil {
+            sessionEventReconcileTask?.cancel()
+            sessionEventReconcileTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled, let self else { return }
+                await self.loadMessages()
+            }
+        }
+        return true
     }
 
     func markReusedFromOpenSessionStore() {
@@ -2841,7 +2931,7 @@ final class ChatViewModel {
     private func switchReasoningFromSlashCommand(_ args: String) async -> SlashCommandExecutionResult {
         let reasoning = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !reasoning.isEmpty else {
-            return .unsupported(friendlyMessage: String(localized: "Usage: /reasoning show|hide|none|minimal|low|medium|high|xhigh"))
+            return .unsupported(friendlyMessage: String(localized: "Usage: /reasoning show|hide|none|minimal|low|medium|high|xhigh|max"))
         }
 
         guard canRunConfigurationSlashCommand(String(localized: "change reasoning")) else {
@@ -3901,7 +3991,8 @@ final class ChatViewModel {
         await reconnectStreamIfNeeded(modelContext: modelContext)
     }
 
-    func reconnectStreamIfNeeded(modelContext: ModelContext? = nil) async {
+    @discardableResult
+    func reconnectStreamIfNeeded(modelContext: ModelContext? = nil) async -> Bool {
         await streamCoordinator.reconnectIfNeeded(modelContext: modelContext)
     }
 
@@ -4081,7 +4172,7 @@ final class ChatViewModel {
             activeBtwAnswer = "Error: \(message)"
             updateActiveBtwMessage(isLoading: false)
             finishBtwStream()
-        case .heartbeat, .ignored, .reasoning, .toolStarted, .toolCompleted, .title, .metering, .pendingSteerLeftover, .lostWorkerBookkeeping:
+        case .heartbeat, .ignored, .reasoning, .toolStarted, .toolCompleted, .title, .sessionSnapshot, .metering, .pendingSteerLeftover, .lostWorkerBookkeeping:
             break
         }
     }
@@ -5038,7 +5129,7 @@ final class ChatViewModel {
     }
 
     private static let reasoningDisplayArgs: Set<String> = ["show", "hide", "on", "off"]
-    private static let reasoningEffortArgs: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh"]
+    private static let reasoningEffortArgs: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
     private static let personalityClearArgs: Set<String> = ["none", "default", "clear"]
 
     private static func btwMessageText(question: String, answer: String?, isLoading: Bool) -> String {
