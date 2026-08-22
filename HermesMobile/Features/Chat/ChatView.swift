@@ -629,7 +629,6 @@ struct ChatView: View {
                 foregroundRefreshTask = nil
                 activeStreamStatusRefreshTask?.cancel()
                 activeStreamStatusRefreshTask = nil
-                viewModel.stopSessionEventSync()
                 ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
             }
             .onAppear {
@@ -649,7 +648,6 @@ struct ChatView: View {
                     }
                 }
 
-                viewModel.startSessionEventSync()
             }
             .onChange(of: viewModel.responseCompletionHapticTrigger) {
                 guard viewModel.responseCompletionHapticTrigger > 0 else { return }

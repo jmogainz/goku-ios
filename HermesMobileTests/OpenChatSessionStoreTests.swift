@@ -29,6 +29,28 @@ final class OpenChatSessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRetainedSessionEventSyncSurvivesNavigationDisappear() throws {
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let streamClient = SpySSEStreamingClient()
+        let viewModel = OpenChatSessionStore.shared.viewModel(
+            session: SessionSummary(sessionId: "session-abc"),
+            server: server,
+            sessionEventStreamClient: streamClient
+        )
+
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        XCTAssertEqual(streamClient.startedURLs.first?.path, "/api/sessions/session-abc/events")
+
+        ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
+
+        XCTAssertEqual(
+            streamClient.stopCount,
+            0,
+            "Session event sync belongs to the retained store, not the disappearing ChatView."
+        )
+    }
+
+    @MainActor
     func testSidebarRefreshReconcilesOpenTranscriptFromCanonicalServer() async throws {
         var sessionFetches = 0
         let viewModel = try makeViewModel(sessionID: "session-abc") { request in
@@ -453,7 +475,7 @@ final class OpenChatSessionStoreTests: XCTestCase {
         viewModel.startSessionEventSync()
 
         XCTAssertTrue(streamClient.startedURLs.isEmpty)
-        XCTAssertEqual(streamClient.stopCount, 1)
+        XCTAssertEqual(streamClient.stopCount, 0)
     }
 
     @MainActor
@@ -520,6 +542,7 @@ final class OpenChatSessionStoreTests: XCTestCase {
             streamClient: resolvedStreamClient,
             approvalStreamClient: SpySSEStreamingClient(),
             clarifyStreamClient: SpySSEStreamingClient(),
+            sessionEventStreamClient: SpySSEStreamingClient(),
             listenAudioSession: SpyListenAudioSession(),
             listenRemoteControlCenter: SpyListenRemoteControlCenter()
         )

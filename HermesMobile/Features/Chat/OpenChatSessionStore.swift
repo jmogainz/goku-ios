@@ -15,20 +15,24 @@ final class OpenChatSessionStore {
     func viewModel(
         session: SessionSummary,
         server: URL,
-        showsLiveActivityResponseExcerpts: Bool = false
+        showsLiveActivityResponseExcerpts: Bool = false,
+        sessionEventStreamClient: SSEStreamingClient? = nil
     ) -> ChatViewModel {
         let key = OpenChatSessionKey(server: server, sessionID: Self.normalizedSessionID(session))
         if let existing = viewModels[key] {
             existing.markReusedFromOpenSessionStore()
+            existing.startSessionEventSync()
             return existing
         }
 
         let created = ChatViewModel(
             session: session,
             server: server,
+            sessionEventStreamClient: sessionEventStreamClient,
             showsLiveActivityResponseExcerpts: showsLiveActivityResponseExcerpts
         )
         viewModels[key] = created
+        created.startSessionEventSync()
         return created
     }
 
@@ -40,6 +44,7 @@ final class OpenChatSessionStore {
     ) -> ChatViewModel {
         let key = OpenChatSessionKey(server: server, sessionID: Self.normalizedSessionID(session))
         viewModels[key] = viewModel
+        viewModel.startSessionEventSync()
         noteStreamingStateChanged()
         return viewModel
     }
@@ -109,6 +114,7 @@ final class OpenChatSessionStore {
     }
 
     func resetForTesting() {
+        viewModels.values.forEach { $0.stopSessionEventSync() }
         viewModels.removeAll()
         liveOwnershipGeneration = 0
     }
@@ -129,6 +135,7 @@ final class SessionEventStreamCoordinator {
     private let sessionID: String
     private let profile: String?
     private let cursorStore: SessionEventCursorStore
+    private var isRunning = false
     private var generation = 0
     private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempt = 0
@@ -167,13 +174,17 @@ final class SessionEventStreamCoordinator {
     }
 
     func start() {
-        stop()
         guard !sessionID.isEmpty else { return }
+        if isRunning {
+            stop()
+        }
+        isRunning = true
         reconnectAttempt = 0
         connect()
     }
 
     func stop() {
+        isRunning = false
         generation &+= 1
         reconnectTask?.cancel()
         reconnectTask = nil

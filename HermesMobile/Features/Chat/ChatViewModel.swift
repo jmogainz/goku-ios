@@ -545,6 +545,7 @@ final class ChatViewModel {
     private var backgroundPromptsByTaskID: [String: String] = [:]
     @ObservationIgnored private var backgroundPollTask: Task<Void, Never>?
     @ObservationIgnored private var sessionEventReconcileTask: Task<Void, Never>?
+    @ObservationIgnored private var didStartSessionEventSync = false
     @ObservationIgnored private var streamStatusWatchTask: Task<Void, Never>?
     private var isRefreshingCompletedResponseTitle = false
     private var isActiveStreamReplayConnection: Bool { streamCoordinator.isReplayConnection }
@@ -679,10 +680,13 @@ final class ChatViewModel {
     }
 
     func startSessionEventSync() {
+        guard !didStartSessionEventSync else { return }
+        didStartSessionEventSync = true
         sessionEventStreamCoordinator.start()
     }
 
     func stopSessionEventSync() {
+        didStartSessionEventSync = false
         sessionEventReconcileTask?.cancel()
         sessionEventReconcileTask = nil
         sessionEventStreamCoordinator.stop()
