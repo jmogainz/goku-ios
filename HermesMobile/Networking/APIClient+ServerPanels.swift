@@ -27,16 +27,30 @@ extension APIClient {
     /// Reasoning status for a specific model/provider (`GET /api/reasoning`).
     /// Passing the session's current model + provider makes `supported_efforts`
     /// model-accurate (mirrors the upstream WebUI composer chip, issue #18);
-    /// with no params the server resolves the config default model instead.
-    func reasoning(model: String? = nil, provider: String? = nil) async throws -> ReasoningStatusResponse {
-        try await send(endpoint: .reasoning(model: model, provider: provider), method: "GET")
+    /// with no params the server resolves the config default model instead. A
+    /// session ID is optional for compatibility with legacy Hermes servers.
+    func reasoning(
+        model: String? = nil,
+        provider: String? = nil,
+        sessionID: String? = nil
+    ) async throws -> ReasoningStatusResponse {
+        try await send(
+            endpoint: .reasoning(model: model, provider: provider, sessionID: sessionID),
+            method: "GET"
+        )
     }
 
-    func saveReasoningEffort(_ effort: String) async throws -> ReasoningStatusResponse {
+    /// Saves an effort override. New Hermes servers accept the optional
+    /// `session_id`; callers must only provide it after the server advertises
+    /// session-scoped reasoning support.
+    func saveReasoningEffort(
+        _ effort: String,
+        sessionID: String? = nil
+    ) async throws -> ReasoningStatusResponse {
         try await send(
             endpoint: .reasoning(),
             method: "POST",
-            body: ReasoningEffortRequest(effort: effort)
+            body: ReasoningEffortRequest(effort: effort, sessionId: sessionID)
         )
     }
 
@@ -170,6 +184,7 @@ private struct DefaultModelRequest: Encodable {
 
 private struct ReasoningEffortRequest: Encodable {
     let effort: String
+    let sessionId: String?
 }
 
 private struct ReasoningDisplayRequest: Encodable {

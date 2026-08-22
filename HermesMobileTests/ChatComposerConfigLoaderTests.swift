@@ -166,6 +166,70 @@ final class ChatComposerConfigLoaderTests: APIClientTestCase {
         XCTAssertEqual(result.state.supportsReasoningEffort, true)
     }
 
+    func testLoadUsesEachActiveSessionForEffectiveReasoningValue() async throws {
+        var reasoningSessionIDs: [String?] = []
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/profiles":
+                return apiTestJSONResponse("""
+                {
+                  "active": "default",
+                  "profiles": [
+                    {"name": "default", "model": "gpt-5.4", "provider": "openai", "is_default": true}
+                  ]
+                }
+                """, for: request)
+            case "/api/models":
+                return apiTestJSONResponse("""
+                {
+                  "default_model": "gpt-5.4",
+                  "groups": [
+                    {
+                      "name": "OpenAI",
+                      "provider_id": "openai",
+                      "models": [{"id": "gpt-5.4", "name": "GPT 5.4"}]
+                    }
+                  ]
+                }
+                """, for: request)
+            case "/api/reasoning":
+                let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+                let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
+                let sessionID = query["session_id"] ?? nil
+                reasoningSessionIDs.append(sessionID)
+                let effort = sessionID == "session-alpha" ? "low" : "high"
+                let response = """
+                {"reasoning_effort":"\(effort)","supported_efforts":["low","high"],"supports_reasoning_effort":true,"session_scoped_reasoning":true}
+                """
+                return apiTestJSONResponse(response, for: request)
+            case "/api/workspaces":
+                return apiTestJSONResponse(#"{"workspaces": []}"#, for: request)
+            case "/api/commands":
+                return apiTestJSONResponse(#"{"commands": []}"#, for: request)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        let initialState = ChatComposerConfigState(
+            currentWorkspace: "/tmp/workspace",
+            currentModel: "gpt-5.4",
+            currentModelProvider: "openai"
+        )
+        let loader = ChatComposerConfigLoader(client: client)
+        let alpha = await loader.loadConfiguration(from: initialState, sessionID: "session-alpha")
+        let beta = await loader.loadConfiguration(from: initialState, sessionID: "session-beta")
+
+        XCTAssertNil(alpha.configurationError)
+        XCTAssertNil(beta.configurationError)
+        XCTAssertEqual(alpha.state.selectedReasoningEffort, "low")
+        XCTAssertEqual(beta.state.selectedReasoningEffort, "high")
+        XCTAssertEqual(alpha.state.sessionScopedReasoning, true)
+        XCTAssertEqual(beta.state.sessionScopedReasoning, true)
+        XCTAssertEqual(reasoningSessionIDs, ["session-alpha", "session-beta"])
+    }
+
     func testLoadReturnsPartialStateAndStillRefreshesCommandsWhenConfigurationFails() async throws {
         var requestPaths: [String] = []
         let client = makeClient { request in
@@ -260,6 +324,28 @@ final class ReasoningEffortGatingTests: XCTestCase {
         XCTAssertEqual(
             ReasoningEffortOption.options(forSupportedEfforts: []).map(\.id),
             ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+        )
+    }
+
+    func testOptionsExposeInheritOnlyForSessionScopedServers() {
+        XCTAssertEqual(
+            ReasoningEffortOption.options(
+                forSupportedEfforts: ["low", "max"],
+                includeInherit: false
+            ).map(\.id),
+            ["low", "max"]
+        )
+        XCTAssertEqual(
+            ReasoningEffortOption.options(
+                forSupportedEfforts: ["low", "max"],
+                includeInherit: true
+            ).map(\.id),
+            [ReasoningEffortOption.inheritID, "low", "max"]
+        )
+        XCTAssertEqual(ReasoningEffortOption.title(for: ReasoningEffortOption.inheritID), "Default")
+        XCTAssertEqual(
+            ReasoningEffortOption.options(forSupportedEfforts: ["low", "max"], includeInherit: true).first?.title,
+            "Default"
         )
     }
 

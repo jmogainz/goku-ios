@@ -478,6 +478,8 @@ struct ReasoningStatusResponse: Decodable, Equatable {
     let showReasoning: Bool?
     let reasoningEffort: String?
     let effort: String?
+    /// Raw per-session override; nil means the session inherits the profile value.
+    let sessionReasoningEffort: String?
     /// Model-aware effort vocabulary from `GET /api/reasoning` (`supported_efforts`).
     /// `nil` on older servers that don't send the field — callers must fall back
     /// to the static effort list (issue #18).
@@ -485,6 +487,10 @@ struct ReasoningStatusResponse: Decodable, Equatable {
     /// `supports_reasoning_effort` — `false` means the resolved model has no
     /// effort control at all (hide the picker). `nil` on older servers.
     let supportsReasoningEffort: Bool?
+    /// `session_scoped_reasoning` — `true` means effort POSTs may carry a
+    /// canonical Hermes session ID. `nil` means a legacy server, so callers
+    /// must retain the existing global/no-session behavior.
+    let sessionScopedReasoning: Bool?
     let error: String?
 
     var effectiveEffort: String? {

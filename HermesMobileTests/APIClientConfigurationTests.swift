@@ -241,6 +241,7 @@ final class APIClientConfigurationTests: APIClientTestCase {
         XCTAssertEqual(response.effectiveEffort, "high")
         XCTAssertNil(response.supportedEfforts)
         XCTAssertNil(response.supportsReasoningEffort)
+        XCTAssertNil(response.sessionScopedReasoning)
         XCTAssertNil(response.normalizedSupportedEfforts)
     }
 
@@ -255,21 +256,28 @@ final class APIClientConfigurationTests: APIClientTestCase {
             )
             XCTAssertEqual(query["model"], "gpt-5.4")
             XCTAssertEqual(query["provider"], "openai")
+            XCTAssertEqual(query["session_id"], "session-abc")
 
             return apiTestJSONResponse("""
             {
               "show_reasoning": true,
               "reasoning_effort": "medium",
               "supported_efforts": ["minimal", "low", "medium", "high", "xhigh"],
-              "supports_reasoning_effort": true
+              "supports_reasoning_effort": true,
+              "session_scoped_reasoning": true
             }
             """, for: request)
         }
 
-        let response = try await client.reasoning(model: "gpt-5.4", provider: "openai")
+        let response = try await client.reasoning(
+            model: "gpt-5.4",
+            provider: "openai",
+            sessionID: "session-abc"
+        )
 
         XCTAssertEqual(response.supportedEfforts, ["minimal", "low", "medium", "high", "xhigh"])
         XCTAssertEqual(response.supportsReasoningEffort, true)
+        XCTAssertEqual(response.sessionScopedReasoning, true)
         XCTAssertEqual(response.normalizedSupportedEfforts, ["minimal", "low", "medium", "high", "xhigh"])
     }
 
@@ -289,6 +297,23 @@ final class APIClientConfigurationTests: APIClientTestCase {
         XCTAssertEqual(response.supportsReasoningEffort, false)
     }
 
+    func testReasoningStatusDecodesSessionOverrideSeparatelyFromEffectiveEffort() throws {
+        let json = """
+        {
+          "reasoning_effort": "high",
+          "session_reasoning_effort": "max",
+          "session_scoped_reasoning": true
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let response = try decoder.decode(ReasoningStatusResponse.self, from: Data(json.utf8))
+
+        XCTAssertEqual(response.effectiveEffort, "high")
+        XCTAssertEqual(response.sessionReasoningEffort, "max")
+        XCTAssertEqual(response.sessionScopedReasoning, true)
+    }
+
     func testSaveReasoningEffortBuildsExpectedBodyAndDecodesResponse() async throws {
         let client = makeClient { request in
             XCTAssertEqual(request.url?.path, "/api/reasoning")
@@ -297,6 +322,7 @@ final class APIClientConfigurationTests: APIClientTestCase {
             let data = try XCTUnwrap(apiTestBodyData(from: request))
             let body = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             XCTAssertEqual(body?["effort"] as? String, "xhigh")
+            XCTAssertNil(body?["session_id"])
 
             return apiTestJSONResponse("""
             {
@@ -310,6 +336,31 @@ final class APIClientConfigurationTests: APIClientTestCase {
 
         XCTAssertEqual(response.ok, true)
         XCTAssertEqual(response.effectiveEffort, "xhigh")
+    }
+
+    func testSaveReasoningEffortCarriesSessionIDOnlyWhenRequested() async throws {
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/reasoning")
+            XCTAssertEqual(request.httpMethod, "POST")
+
+            let body = try apiTestJSONBody(from: request)
+            XCTAssertEqual(body["effort"] as? String, "max")
+            XCTAssertEqual(body["session_id"] as? String, "session-abc")
+            XCTAssertNil(body["sessionId"])
+
+            return apiTestJSONResponse("""
+            {
+              "ok": true,
+              "reasoning_effort": "high",
+              "session_scoped_reasoning": true
+            }
+            """, for: request)
+        }
+
+        let response = try await client.saveReasoningEffort("max", sessionID: "session-abc")
+
+        XCTAssertEqual(response.effectiveEffort, "high")
+        XCTAssertEqual(response.sessionScopedReasoning, true)
     }
 
     func testSaveReasoningDisplayBuildsExpectedBodyAndDecodesResponse() async throws {
