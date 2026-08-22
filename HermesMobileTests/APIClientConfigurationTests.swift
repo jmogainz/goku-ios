@@ -202,7 +202,8 @@ final class APIClientConfigurationTests: APIClientTestCase {
                 "session_id": "session-abc",
                 "workspace": "/tmp/workspace",
                 "model": "@openai:gpt-5.5",
-                "model_provider": "openai"
+                "model_provider": "openai",
+                "reasoning_effort": "high"
               }
             }
             """, for: request)
@@ -218,6 +219,7 @@ final class APIClientConfigurationTests: APIClientTestCase {
         XCTAssertEqual(response.session?.sessionId, "session-abc")
         XCTAssertEqual(response.session?.model, "@openai:gpt-5.5")
         XCTAssertEqual(response.session?.modelProvider, "openai")
+        XCTAssertEqual(response.session?.reasoningEffort, "high")
     }
 
     func testReasoningStatusBuildsExpectedPathAndDecodesEffort() async throws {
@@ -256,7 +258,8 @@ final class APIClientConfigurationTests: APIClientTestCase {
             )
             XCTAssertEqual(query["model"], "gpt-5.4")
             XCTAssertEqual(query["provider"], "openai")
-            XCTAssertEqual(query["session_id"], "session-abc")
+            XCTAssertEqual(query["session_effort"], "high")
+            XCTAssertNil(query["session_id"])
 
             return apiTestJSONResponse("""
             {
@@ -272,7 +275,7 @@ final class APIClientConfigurationTests: APIClientTestCase {
         let response = try await client.reasoning(
             model: "gpt-5.4",
             provider: "openai",
-            sessionID: "session-abc"
+            sessionEffort: "high"
         )
 
         XCTAssertEqual(response.supportedEfforts, ["minimal", "low", "medium", "high", "xhigh"])
@@ -340,26 +343,51 @@ final class APIClientConfigurationTests: APIClientTestCase {
 
     func testSaveReasoningEffortCarriesSessionIDOnlyWhenRequested() async throws {
         let client = makeClient { request in
-            XCTAssertEqual(request.url?.path, "/api/reasoning")
-            XCTAssertEqual(request.httpMethod, "POST")
-
-            let body = try apiTestJSONBody(from: request)
-            XCTAssertEqual(body["effort"] as? String, "max")
-            XCTAssertEqual(body["session_id"] as? String, "session-abc")
-            XCTAssertNil(body["sessionId"])
-
-            return apiTestJSONResponse("""
-            {
-              "ok": true,
-              "reasoning_effort": "high",
-              "session_scoped_reasoning": true
+            switch request.httpMethod {
+            case "POST":
+                XCTAssertEqual(request.url?.path, "/api/session/update")
+                let body = try apiTestJSONBody(from: request)
+                XCTAssertEqual(body["session_id"] as? String, "session-abc")
+                XCTAssertEqual(body["reasoning_effort"] as? String, "max")
+                XCTAssertNil(body["effort"])
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "model": "gpt-5.4",
+                    "model_provider": "openai",
+                    "reasoning_effort": "max"
+                  }
+                }
+                """, for: request)
+            case "GET":
+                XCTAssertEqual(request.url?.path, "/api/reasoning")
+                let components = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+                let query = Dictionary(
+                    uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value) }
+                )
+                XCTAssertEqual(query["model"], "gpt-5.4")
+                XCTAssertEqual(query["provider"], "openai")
+                XCTAssertEqual(query["session_effort"], "max")
+                XCTAssertNil(query["session_id"] ?? nil)
+                return apiTestJSONResponse("""
+                {
+                  "ok": true,
+                  "reasoning_effort": "max",
+                  "supported_efforts": ["minimal", "low", "medium", "high", "xhigh", "max"],
+                  "session_scoped_reasoning": true
+                }
+                """, for: request)
+            default:
+                XCTFail("Unexpected method: \(request.httpMethod ?? "nil")")
+                return apiTestJSONResponse("{}", for: request)
             }
-            """, for: request)
         }
 
         let response = try await client.saveReasoningEffort("max", sessionID: "session-abc")
 
-        XCTAssertEqual(response.effectiveEffort, "high")
+        XCTAssertEqual(response.effectiveEffort, "max")
+        XCTAssertEqual(response.sessionReasoningEffort, "max")
         XCTAssertEqual(response.sessionScopedReasoning, true)
     }
 

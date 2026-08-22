@@ -595,6 +595,7 @@ final class ChatViewModel {
         currentModel = session.model
         currentModelProvider = session.modelProvider
         currentProfile = session.profile
+        sessionReasoningEffort = Self.nonEmpty(session.reasoningEffort)
         isCLISession = session.isCliSession == true
         self.server = server
         let resolvedClient = client ?? APIClient(baseURL: server)
@@ -1158,7 +1159,7 @@ final class ChatViewModel {
         guard let response = try? await client.reasoning(
             model: Self.nonEmpty(currentModel),
             provider: Self.nonEmpty(currentModelProvider),
-            sessionID: expectedSessionID
+            sessionEffort: sessionReasoningEffort
         ) else {
             if token == reasoningGatingFetchToken,
                expectedSessionID == canonicalSessionID,
@@ -1180,7 +1181,7 @@ final class ChatViewModel {
         supportedReasoningEfforts = response.normalizedSupportedEfforts
         supportsReasoningEffort = response.supportsReasoningEffort
         sessionScopedReasoning = response.sessionScopedReasoning
-        sessionReasoningEffort = response.sessionReasoningEffort
+        sessionReasoningEffort = response.normalizedSessionReasoningEffort
 
         if let selected = Self.nonEmpty(selectedReasoningEffort)?.lowercased(),
            let supported = supportedReasoningEfforts,
@@ -1426,7 +1427,7 @@ final class ChatViewModel {
             else { return false }
 
             sessionScopedReasoning = response.sessionScopedReasoning ?? sessionScopedReasoning
-            sessionReasoningEffort = response.sessionReasoningEffort
+            sessionReasoningEffort = response.normalizedSessionReasoningEffort
                 ?? (sessionScopedReasoning == true && !clearsSessionOverride ? wireEffort : nil)
             selectedReasoningEffort = response.effectiveEffort
                 ?? (clearsSessionOverride ? selectedReasoningEffort : selectedEffort)
@@ -2998,7 +2999,11 @@ final class ChatViewModel {
     private func switchReasoningFromSlashCommand(_ args: String) async -> SlashCommandExecutionResult {
         let reasoning = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !reasoning.isEmpty else {
-            return .unsupported(friendlyMessage: String(localized: "Usage: /reasoning show|hide|none|minimal|low|medium|high|xhigh|max|inherit"))
+            let levels = SlashCommandCatalog.availableReasoningLevels(
+                forSupportedEfforts: supportedReasoningEfforts
+            )
+            let usage = (["show", "hide"] + levels).joined(separator: "|")
+            return .unsupported(friendlyMessage: String(localized: "Usage: /reasoning \(usage)|inherit"))
         }
 
         guard canRunConfigurationSlashCommand(String(localized: "change reasoning")) else {
@@ -3066,7 +3071,7 @@ final class ChatViewModel {
                 }
 
                 sessionScopedReasoning = response.sessionScopedReasoning ?? sessionScopedReasoning
-                sessionReasoningEffort = response.sessionReasoningEffort
+                sessionReasoningEffort = response.normalizedSessionReasoningEffort
                     ?? (sessionScopedReasoning == true ? reasoning : nil)
                 selectedReasoningEffort = response.effectiveEffort ?? reasoning
             } else {
@@ -5248,7 +5253,7 @@ final class ChatViewModel {
     }
 
     private static let reasoningDisplayArgs: Set<String> = ["show", "hide", "on", "off"]
-    private static let reasoningEffortArgs: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+    private static let reasoningEffortArgs: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh"]
     private static let reasoningClearArgs: Set<String> = [ReasoningEffortOption.inheritID, "clear", "default"]
     private static let personalityClearArgs: Set<String> = ["none", "default", "clear"]
 

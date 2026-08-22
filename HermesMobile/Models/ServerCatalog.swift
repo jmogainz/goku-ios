@@ -506,6 +506,29 @@ struct ReasoningStatusResponse: Decodable, Equatable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
+
+    var normalizedSessionReasoningEffort: String? {
+        guard let sessionReasoningEffort,
+              !sessionReasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return sessionReasoningEffort
+    }
+
+    func withSessionReasoningEffort(_ value: String?) -> ReasoningStatusResponse {
+        let normalizedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawValue = normalizedValue?.isEmpty == false ? normalizedValue : nil
+        return ReasoningStatusResponse(
+            ok: ok,
+            showReasoning: showReasoning,
+            reasoningEffort: reasoningEffort,
+            effort: effort,
+            sessionReasoningEffort: rawValue,
+            supportedEfforts: supportedEfforts,
+            supportsReasoningEffort: supportsReasoningEffort,
+            sessionScopedReasoning: sessionScopedReasoning,
+            error: error
+        )
+    }
 }
 
 struct PersonalitiesResponse: Decodable, Equatable {

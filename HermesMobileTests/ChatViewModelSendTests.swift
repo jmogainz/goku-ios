@@ -6012,7 +6012,7 @@ final class ChatViewModelSendTests: XCTestCase {
 
     @MainActor
     func testSessionScopedReasoningSelectionStaysIsolatedPerConversation() async throws {
-        var reasoningGETSessionIDs: [String?] = []
+        var reasoningGETSessionEfforts: [String?] = []
         var reasoningPOSTs: [(sessionID: String?, effort: String?)] = []
         let handler: (URLRequest) throws -> (HTTPURLResponse, Data) = { request in
             switch request.url?.path {
@@ -6029,27 +6029,30 @@ final class ChatViewModelSendTests: XCTestCase {
                   }]
                 }
                 """, for: request)
-            case "/api/reasoning" where request.httpMethod == "POST":
+            case "/api/session/update":
                 let body = try apiTestJSONBody(from: request)
                 let sessionID = body["session_id"] as? String
-                let effort = body["effort"] as? String
+                let effort = body["reasoning_effort"] as? String
                 reasoningPOSTs.append((sessionID: sessionID, effort: effort))
                 return apiTestJSONResponse("""
                 {
-                  "ok": true,
-                  "reasoning_effort": "\(effort ?? "")",
-                  "session_scoped_reasoning": true
+                  "session": {
+                    "session_id": "\(sessionID ?? "")",
+                    "model": "gpt-5.4",
+                    "model_provider": "openai",
+                    "reasoning_effort": "\(effort ?? "")"
+                  }
                 }
                 """, for: request)
             case "/api/reasoning":
                 let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
                 let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
-                let sessionID = query["session_id"] ?? nil
-                reasoningGETSessionIDs.append(sessionID)
-                let effort = sessionID == "session-alpha" ? "low" : "high"
+                XCTAssertNil(query["session_id"] ?? nil)
+                let effort = query["session_effort"] ?? nil
+                reasoningGETSessionEfforts.append(effort)
                 return apiTestJSONResponse("""
                 {
-                  "reasoning_effort": "\(effort)",
+                  "reasoning_effort": "\(effort ?? "low")",
                   "supported_efforts": ["low", "high"],
                   "supports_reasoning_effort": true,
                   "session_scoped_reasoning": true
@@ -6071,7 +6074,8 @@ final class ChatViewModelSendTests: XCTestCase {
                 title: "Alpha",
                 workspace: "/tmp/workspace",
                 model: "gpt-5.4",
-                modelProvider: "openai"
+                modelProvider: "openai",
+                reasoningEffort: "low"
             ),
             handler: handler
         )
@@ -6081,7 +6085,8 @@ final class ChatViewModelSendTests: XCTestCase {
                 title: "Beta",
                 workspace: "/tmp/workspace",
                 model: "gpt-5.4",
-                modelProvider: "openai"
+                modelProvider: "openai",
+                reasoningEffort: "high"
             ),
             handler: handler
         )
@@ -6091,7 +6096,7 @@ final class ChatViewModelSendTests: XCTestCase {
 
         XCTAssertEqual(alpha.selectedReasoningEffort, "low")
         XCTAssertEqual(beta.selectedReasoningEffort, "high")
-        XCTAssertEqual(reasoningGETSessionIDs, ["session-alpha", "session-beta"])
+        XCTAssertEqual(reasoningGETSessionEfforts, ["low", "high"])
 
         let alphaDidSelect = await alpha.selectReasoningEffort("high")
         let betaDidSelect = await beta.selectReasoningEffort("low")
@@ -6099,6 +6104,7 @@ final class ChatViewModelSendTests: XCTestCase {
         XCTAssertTrue(betaDidSelect)
         XCTAssertEqual(reasoningPOSTs.map { $0.sessionID }, ["session-alpha", "session-beta"])
         XCTAssertEqual(reasoningPOSTs.map { $0.effort }, ["high", "low"])
+        XCTAssertEqual(reasoningGETSessionEfforts, ["low", "high", "high", "low"])
     }
 
     @MainActor
@@ -6143,7 +6149,8 @@ final class ChatViewModelSendTests: XCTestCase {
 
     @MainActor
     func testReasoningSlashCommandUsesAdvertisedSessionScope() async throws {
-        var postedBody: [String: Any]?
+        var sessionUpdateBody: [String: Any]?
+        var reasoningQuery: [String: String?]?
         let viewModel = try makeViewModel(
             sessionSummary: SessionSummary(
                 sessionId: "session-slash",
@@ -6158,11 +6165,22 @@ final class ChatViewModelSendTests: XCTestCase {
                 return apiTestJSONResponse(#"{"active":"default","profiles":[]}"#, for: request)
             case "/api/models":
                 return apiTestJSONResponse(#"{"default_model":"gpt-5.4","groups":[]}"#, for: request)
-            case "/api/reasoning" where request.httpMethod == "POST":
-                postedBody = try apiTestJSONBody(from: request)
-                return apiTestJSONResponse(#"{"ok":true,"reasoning_effort":"max","session_scoped_reasoning":true}"#, for: request)
+            case "/api/session/update":
+                sessionUpdateBody = try apiTestJSONBody(from: request)
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-slash",
+                    "model": "gpt-5.4",
+                    "model_provider": "openai",
+                    "reasoning_effort": "max"
+                  }
+                }
+                """, for: request)
             case "/api/reasoning":
-                return apiTestJSONResponse(#"{"reasoning_effort":"low","supported_efforts":["low","max"],"supports_reasoning_effort":true,"session_scoped_reasoning":true}"#, for: request)
+                let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+                reasoningQuery = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
+                return apiTestJSONResponse(#"{"ok":true,"reasoning_effort":"max","supported_efforts":["low","max"],"supports_reasoning_effort":true,"session_scoped_reasoning":true}"#, for: request)
             case "/api/workspaces":
                 return apiTestJSONResponse(#"{"workspaces":[]}"#, for: request)
             case "/api/commands":
@@ -6180,21 +6198,26 @@ final class ChatViewModelSendTests: XCTestCase {
         )
 
         XCTAssertEqual(result, .executed(message: nil))
-        XCTAssertEqual(postedBody?["effort"] as? String, "max")
-        XCTAssertEqual(postedBody?["session_id"] as? String, "session-slash")
+        XCTAssertEqual(sessionUpdateBody?["session_id"] as? String, "session-slash")
+        XCTAssertEqual(sessionUpdateBody?["reasoning_effort"] as? String, "max")
+        XCTAssertNil(sessionUpdateBody?["effort"])
+        XCTAssertEqual(reasoningQuery?["session_effort"] ?? nil, "max")
+        XCTAssertNil(reasoningQuery?["session_id"] ?? nil)
         XCTAssertEqual(viewModel.selectedReasoningEffort, "max")
     }
 
     @MainActor
     func testSessionScopedInheritSelectionClearsOverrideAndRestoresEffectiveEffort() async throws {
-        var postedBody: [String: Any]?
+        var sessionUpdateBody: [String: Any]?
+        var reasoningQuery: [String: String?]?
         let viewModel = try makeViewModel(
             sessionSummary: SessionSummary(
                 sessionId: "session-inherit",
                 title: "Inherit",
                 workspace: "/tmp/workspace",
                 model: "gpt-5.6-luna",
-                modelProvider: "openai-codex"
+                modelProvider: "openai-codex",
+                reasoningEffort: "high"
             )
         ) { request in
             switch request.url?.path {
@@ -6207,14 +6230,17 @@ final class ChatViewModelSendTests: XCTestCase {
                   "groups":[{"name":"OpenAI Codex","provider_id":"openai-codex","models":[{"id":"gpt-5.6-luna","name":"GPT-5.6 Luna"}]}]
                 }
                 """, for: request)
-            case "/api/reasoning" where request.httpMethod == "POST":
-                postedBody = try apiTestJSONBody(from: request)
+            case "/api/session/update":
+                sessionUpdateBody = try apiTestJSONBody(from: request)
                 return apiTestJSONResponse("""
-                {"ok":true,"reasoning_effort":"low","session_reasoning_effort":null,"session_scoped_reasoning":true}
+                {"session":{"session_id":"session-inherit","model":"gpt-5.6-luna","model_provider":"openai-codex","reasoning_effort":""}}
                 """, for: request)
             case "/api/reasoning":
+                let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+                reasoningQuery = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
+                let isCleared = (reasoningQuery?["session_effort"] ?? nil) == ""
                 return apiTestJSONResponse("""
-                {"reasoning_effort":"high","session_reasoning_effort":"high","supported_efforts":["low","high","max"],"supports_reasoning_effort":true,"session_scoped_reasoning":true}
+                {"reasoning_effort":"\(isCleared ? "low" : "high")","supported_efforts":["low","high","max"],"supports_reasoning_effort":true,"session_scoped_reasoning":true}
                 """, for: request)
             case "/api/workspaces":
                 return apiTestJSONResponse(#"{"workspaces":[]}"#, for: request)
@@ -6232,8 +6258,11 @@ final class ChatViewModelSendTests: XCTestCase {
         let didClear = await viewModel.selectReasoningEffort(ReasoningEffortOption.inheritID)
 
         XCTAssertTrue(didClear)
-        XCTAssertEqual(postedBody?["effort"] as? String, "")
-        XCTAssertEqual(postedBody?["session_id"] as? String, "session-inherit")
+        XCTAssertEqual(sessionUpdateBody?["session_id"] as? String, "session-inherit")
+        XCTAssertEqual(sessionUpdateBody?["reasoning_effort"] as? String, "")
+        XCTAssertNil(sessionUpdateBody?["effort"])
+        XCTAssertEqual(reasoningQuery?["session_effort"] ?? nil, "")
+        XCTAssertNil(reasoningQuery?["session_id"] ?? nil)
         XCTAssertEqual(viewModel.selectedReasoningEffort, "low")
         XCTAssertNil(viewModel.sessionReasoningEffort)
     }

@@ -24,30 +24,49 @@ extension APIClient {
         )
     }
 
-    /// Reasoning status for a specific model/provider (`GET /api/reasoning`).
     /// Passing the session's current model + provider makes `supported_efforts`
-    /// model-accurate (mirrors the upstream WebUI composer chip, issue #18);
-    /// with no params the server resolves the config default model instead. A
-    /// session ID is optional for compatibility with legacy Hermes servers.
+    /// model-accurate (mirrors the upstream WebUI composer chip, issue #18).
+    /// New Hermes servers accept the raw session override as `session_effort`;
+    /// legacy servers omit that query and resolve the profile default.
     func reasoning(
         model: String? = nil,
         provider: String? = nil,
-        sessionID: String? = nil
+        sessionEffort: String? = nil
     ) async throws -> ReasoningStatusResponse {
         try await send(
-            endpoint: .reasoning(model: model, provider: provider, sessionID: sessionID),
+            endpoint: .reasoning(model: model, provider: provider, sessionEffort: sessionEffort),
             method: "GET"
         )
     }
 
-    /// Saves an effort override. New Hermes servers accept the optional
-    /// `session_id`; callers must only provide it after the server advertises
-    /// session-scoped reasoning support.
+    /// Saves an effort override. Session-scoped writes use the canonical
+    /// `/api/session/update` contract; global writes retain `/api/reasoning`.
     func saveReasoningEffort(
         _ effort: String,
         sessionID: String? = nil
     ) async throws -> ReasoningStatusResponse {
-        try await send(
+        if let sessionID {
+            let updateResponse = try await updateSession(
+                id: sessionID,
+                workspace: nil,
+                model: nil,
+                modelProvider: nil,
+                reasoningEffort: effort
+            )
+            let updatedSession = updateResponse.session
+            let rawEffort = updatedSession?.reasoningEffort ?? (effort.isEmpty ? nil : effort)
+            let response = try await reasoning(
+                model: updatedSession?.model,
+                provider: updatedSession?.modelProvider,
+                sessionEffort: rawEffort
+            )
+            // The canonical status response reports the effective effort. The
+            // raw override lives in the session-update envelope, so preserve it
+            // for the composer state as well.
+            return response.withSessionReasoningEffort(rawEffort)
+        }
+
+        return try await send(
             endpoint: .reasoning(),
             method: "POST",
             body: ReasoningEffortRequest(effort: effort, sessionId: sessionID)

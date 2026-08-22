@@ -277,6 +277,7 @@ struct MessageComposerView: View {
                             skillSuggestions: skillSuggestions,
                             agentCommands: agentCommands,
                             selectedReasoningEffort: selectedReasoningEffort,
+                            supportedReasoningEfforts: supportedReasoningEfforts,
                             onSelectCommand: { command in
                                 draftMessage = "/\(command.name) "
                             },

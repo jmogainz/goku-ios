@@ -452,6 +452,10 @@ struct ReasoningEffortOption: Identifiable, CaseIterable {
         ReasoningEffortOption(id: "max", title: String(localized: "Max"))
     ]
 
+    /// Legacy servers do not advertise their effort vocabulary and therefore
+    /// cannot be assumed to support provider-specific levels such as Max.
+    static let legacyCases = allCases.filter { $0.id != "max" }
+
     static func title(for effort: String) -> String {
         if effort == inheritID {
             return String(localized: "Default")
@@ -461,10 +465,9 @@ struct ReasoningEffortOption: Identifiable, CaseIterable {
     }
 
     /// Menu options for a server-provided effort vocabulary (issue #18).
-    /// `nil` or empty → the full static list (older servers / defensive fallback;
-    /// an empty list also means `supports_reasoning_effort == false`, which hides
-    /// the control before this is ever rendered). Unknown ids are kept with a
-    /// capitalized title so a newer server's vocabulary still works.
+    /// `nil` or empty → the legacy six-level list. Max is included only when the
+    /// server explicitly advertises it in `supported_efforts`. Unknown ids are
+    /// kept with a capitalized title so a newer server's vocabulary still works.
     static func options(
         forSupportedEfforts supportedEfforts: [String]?,
         includeInherit: Bool = false
@@ -480,7 +483,7 @@ struct ReasoningEffortOption: Identifiable, CaseIterable {
                         ?? ReasoningEffortOption(id: id, title: id.capitalized)
                 }
         } else {
-            effortOptions = allCases
+            effortOptions = legacyCases
         }
 
         guard includeInherit else { return effortOptions }

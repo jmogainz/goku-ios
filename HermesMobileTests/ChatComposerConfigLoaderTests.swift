@@ -167,7 +167,7 @@ final class ChatComposerConfigLoaderTests: APIClientTestCase {
     }
 
     func testLoadUsesEachActiveSessionForEffectiveReasoningValue() async throws {
-        var reasoningSessionIDs: [String?] = []
+        var reasoningSessionEfforts: [String?] = []
         let client = makeClient { request in
             switch request.url?.path {
             case "/api/profiles":
@@ -195,9 +195,9 @@ final class ChatComposerConfigLoaderTests: APIClientTestCase {
             case "/api/reasoning":
                 let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
                 let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
-                let sessionID = query["session_id"] ?? nil
-                reasoningSessionIDs.append(sessionID)
-                let effort = sessionID == "session-alpha" ? "low" : "high"
+                XCTAssertNil(query["session_id"])
+                let effort = try XCTUnwrap(query["session_effort"] ?? nil)
+                reasoningSessionEfforts.append(effort)
                 let response = """
                 {"reasoning_effort":"\(effort)","supported_efforts":["low","high"],"supports_reasoning_effort":true,"session_scoped_reasoning":true}
                 """
@@ -212,14 +212,21 @@ final class ChatComposerConfigLoaderTests: APIClientTestCase {
             }
         }
 
-        let initialState = ChatComposerConfigState(
+        let alphaState = ChatComposerConfigState(
             currentWorkspace: "/tmp/workspace",
             currentModel: "gpt-5.4",
-            currentModelProvider: "openai"
+            currentModelProvider: "openai",
+            sessionReasoningEffort: "low"
+        )
+        let betaState = ChatComposerConfigState(
+            currentWorkspace: "/tmp/workspace",
+            currentModel: "gpt-5.4",
+            currentModelProvider: "openai",
+            sessionReasoningEffort: "high"
         )
         let loader = ChatComposerConfigLoader(client: client)
-        let alpha = await loader.loadConfiguration(from: initialState, sessionID: "session-alpha")
-        let beta = await loader.loadConfiguration(from: initialState, sessionID: "session-beta")
+        let alpha = await loader.loadConfiguration(from: alphaState, sessionID: "session-alpha")
+        let beta = await loader.loadConfiguration(from: betaState, sessionID: "session-beta")
 
         XCTAssertNil(alpha.configurationError)
         XCTAssertNil(beta.configurationError)
@@ -227,7 +234,7 @@ final class ChatComposerConfigLoaderTests: APIClientTestCase {
         XCTAssertEqual(beta.state.selectedReasoningEffort, "high")
         XCTAssertEqual(alpha.state.sessionScopedReasoning, true)
         XCTAssertEqual(beta.state.sessionScopedReasoning, true)
-        XCTAssertEqual(reasoningSessionIDs, ["session-alpha", "session-beta"])
+        XCTAssertEqual(reasoningSessionEfforts, ["low", "high"])
     }
 
     func testLoadReturnsPartialStateAndStillRefreshesCommandsWhenConfigurationFails() async throws {
@@ -317,13 +324,12 @@ final class ReasoningEffortGatingTests: XCTestCase {
     func testOptionsFallBackToStaticListWithoutServerVocabulary() {
         XCTAssertEqual(
             ReasoningEffortOption.options(forSupportedEfforts: nil).map(\.id),
-            ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+            ["none", "minimal", "low", "medium", "high", "xhigh"]
         )
-        // Defensive: an empty list also falls back (the control is hidden
-        // before this is rendered because supports_reasoning_effort is false).
+        // Defensive: an empty list also falls back without exposing Max.
         XCTAssertEqual(
             ReasoningEffortOption.options(forSupportedEfforts: []).map(\.id),
-            ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+            ["none", "minimal", "low", "medium", "high", "xhigh"]
         )
     }
 

@@ -128,10 +128,11 @@ struct ChatComposerConfigLoader {
             let reasoningResponse = try await client.reasoning(
                 model: Self.nonEmpty(state.currentModel),
                 provider: Self.nonEmpty(state.currentModelProvider),
-                sessionID: Self.nonEmpty(sessionID)
+                sessionEffort: state.sessionReasoningEffort
             )
             state.selectedReasoningEffort = reasoningResponse.effectiveEffort
-            state.sessionReasoningEffort = reasoningResponse.sessionReasoningEffort
+            state.sessionReasoningEffort = reasoningResponse.normalizedSessionReasoningEffort
+                ?? state.sessionReasoningEffort
             state.supportedReasoningEfforts = reasoningResponse.normalizedSupportedEfforts
             state.supportsReasoningEffort = reasoningResponse.supportsReasoningEffort
             state.sessionScopedReasoning = reasoningResponse.sessionScopedReasoning
