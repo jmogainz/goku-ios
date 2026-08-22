@@ -328,7 +328,9 @@ final class ChatStreamCoordinatorTests: APIClientTestCase {
 
         XCTAssertEqual(coordinator.activeStreamID, "stream-new")
         XCTAssertFalse(coordinator.isConnectionSuspended)
-        XCTAssertEqual(streamClient.startedURLs.count, 2)
+        // The fast path attaches the original stream before transcript reload;
+        // the synthetic replacement during that reload then supersedes it.
+        XCTAssertEqual(streamClient.startedURLs.count, 3)
         XCTAssertEqual(delegate.loadMessagesCount, 1)
     }
 
