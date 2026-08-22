@@ -21,7 +21,10 @@ final class OpenChatSessionStore {
         let key = OpenChatSessionKey(server: server, sessionID: Self.normalizedSessionID(session))
         if let existing = viewModels[key] {
             existing.markReusedFromOpenSessionStore()
-            existing.startSessionEventSync()
+            // Session-event sync is owned by ChatView visibility, not store
+            // retention: always-on background streams for every retained chat
+            // caused main-thread churn (disk writes + transcript reloads) and
+            // regressed per-conversation smoothness (build 19 regression).
             return existing
         }
 
@@ -32,7 +35,6 @@ final class OpenChatSessionStore {
             showsLiveActivityResponseExcerpts: showsLiveActivityResponseExcerpts
         )
         viewModels[key] = created
-        created.startSessionEventSync()
         return created
     }
 
@@ -44,7 +46,6 @@ final class OpenChatSessionStore {
     ) -> ChatViewModel {
         let key = OpenChatSessionKey(server: server, sessionID: Self.normalizedSessionID(session))
         viewModels[key] = viewModel
-        viewModel.startSessionEventSync()
         noteStreamingStateChanged()
         return viewModel
     }
@@ -142,6 +143,10 @@ final class SessionEventStreamCoordinator {
     private var lastAcceptedEventID: String?
     private var seenEventIDs: Set<String>
     private var seenEventOrder: [String]
+    /// Debounces synchronous UserDefaults writes. Streaming bursts deliver one
+    /// event at a time on the main actor; writing the cursor and seen-ID array
+    /// for every event hitches scrolling/typing (main-actor disk I/O).
+    private var cursorPersistTask: Task<Void, Never>?
 
 
     var onSnapshot: (@MainActor (SessionSummary) -> Bool)?
@@ -189,6 +194,51 @@ final class SessionEventStreamCoordinator {
         reconnectTask?.cancel()
         reconnectTask = nil
         streamClient.stop()
+        flushCursorPersist()
+    }
+
+    /// Coalesces cursor + seen-ID persistence into one delayed write per burst.
+    /// In-memory dedupe state stays immediately consistent; only the disk
+    /// mirror is deferred. A crash within the window replays at most a few
+    /// already-deduped events, which handleSessionEvent tolerates.
+    private func scheduleCursorPersist() {
+        cursorPersistTask?.cancel()
+        cursorPersistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.cursorPersistTask = nil
+            guard let eventID = self.lastAcceptedEventID else { return }
+            self.cursorStore.save(
+                eventID: eventID,
+                server: self.server,
+                profile: self.profile,
+                sessionID: self.sessionID
+            )
+            self.cursorStore.saveSeenEventIDs(
+                self.seenEventOrder,
+                server: self.server,
+                profile: self.profile,
+                sessionID: self.sessionID
+            )
+        }
+    }
+
+    private func flushCursorPersist() {
+        cursorPersistTask?.cancel()
+        cursorPersistTask = nil
+        guard let eventID = lastAcceptedEventID else { return }
+        cursorStore.save(
+            eventID: eventID,
+            server: server,
+            profile: profile,
+            sessionID: sessionID
+        )
+        cursorStore.saveSeenEventIDs(
+            seenEventOrder,
+            server: server,
+            profile: profile,
+            sessionID: sessionID
+        )
     }
 
     private func connect() {
@@ -196,7 +246,11 @@ final class SessionEventStreamCoordinator {
         generation &+= 1
         let connectionGeneration = generation
         let url = Endpoint.sessionEvents(sessionID: sessionID).url(relativeTo: server)
-        let resumeFrom = cursorStore.load(server: server, profile: profile, sessionID: sessionID)
+        // Prefer the in-memory cursor: persistence is debounced, so the disk
+        // mirror can lag behind during a streaming burst while a reconnect is
+        // already due.
+        let resumeFrom = Self.normalizedEventID(lastAcceptedEventID)
+            ?? cursorStore.load(server: server, profile: profile, sessionID: sessionID)
         lastAcceptedEventID = resumeFrom
         if let resumeFrom {
             remember(eventID: resumeFrom, persist: false)
@@ -211,6 +265,8 @@ final class SessionEventStreamCoordinator {
                 // A snapshot means the server could not honor the prior replay
                 // cursor. It is a recovery boundary: discard the stale cursor and
                 // all prior dedupe state before the next reconnect.
+                self.cursorPersistTask?.cancel()
+                self.cursorPersistTask = nil
                 self.lastAcceptedEventID = nil
                 self.seenEventIDs.removeAll(keepingCapacity: true)
                 self.seenEventOrder.removeAll(keepingCapacity: true)
@@ -238,13 +294,8 @@ final class SessionEventStreamCoordinator {
                 if let eventID = Self.normalizedEventID(eventID) {
                     guard !self.seenEventIDs.contains(eventID) else { return }
                     self.lastAcceptedEventID = eventID
-                    self.remember(eventID: eventID, persist: true)
-                    self.cursorStore.save(
-                        eventID: eventID,
-                        server: self.server,
-                        profile: self.profile,
-                        sessionID: self.sessionID
-                    )
+                    self.remember(eventID: eventID, persist: false)
+                    self.scheduleCursorPersist()
                 }
                 self.onEvent?(event)
                 if Self.requiresReconnect(for: event) {
