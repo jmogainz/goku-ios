@@ -629,6 +629,10 @@ struct ChatView: View {
                 foregroundRefreshTask = nil
                 activeStreamStatusRefreshTask?.cancel()
                 activeStreamStatusRefreshTask = nil
+                // Stop the per-session event stream when the chat is not on
+                // screen. Background sync for every retained conversation caused
+                // main-thread disk I/O and transcript reloads (build 19 lag).
+                viewModel.stopSessionEventSync()
                 ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
             }
             .onAppear {
@@ -648,6 +652,9 @@ struct ChatView: View {
                     }
                 }
 
+                // Event sync runs only while the chat is visible; leaving the
+                // conversation stops it (see onDisappear).
+                viewModel.startSessionEventSync()
             }
             .onChange(of: viewModel.responseCompletionHapticTrigger) {
                 guard viewModel.responseCompletionHapticTrigger > 0 else { return }

@@ -29,7 +29,7 @@ final class OpenChatSessionStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRetainedSessionEventSyncSurvivesNavigationDisappear() throws {
+    func testStoreRetentionDoesNotStartSessionEventSync() throws {
         let server = try XCTUnwrap(URL(string: "https://example.test"))
         let streamClient = SpySSEStreamingClient()
         let viewModel = OpenChatSessionStore.shared.viewModel(
@@ -38,16 +38,55 @@ final class OpenChatSessionStoreTests: XCTestCase {
             sessionEventStreamClient: streamClient
         )
 
+        // Store retention alone must not open a background event stream.
+        // Always-on streams for every retained chat caused main-thread disk
+        // I/O and transcript reloads (build 19 lag regression).
+        XCTAssertEqual(streamClient.startedURLs.count, 0)
+
+        // ChatView owns the lifecycle: appearing starts, disappearing stops.
+        viewModel.startSessionEventSync()
         XCTAssertEqual(streamClient.startedURLs.count, 1)
         XCTAssertEqual(streamClient.startedURLs.first?.path, "/api/sessions/session-abc/events")
 
-        ChatNavigationLifecycle.applyViewDisappear(to: viewModel)
+        viewModel.stopSessionEventSync()
+        XCTAssertEqual(streamClient.stopCount, 1)
 
-        XCTAssertEqual(
-            streamClient.stopCount,
-            0,
-            "Session event sync belongs to the retained store, not the disappearing ChatView."
+        // Re-appearing restarts the stream after an explicit stop.
+        viewModel.startSessionEventSync()
+        XCTAssertEqual(streamClient.startedURLs.count, 2)
+    }
+
+    @MainActor
+    func testCursorPersistenceIsDebouncedAcrossStreamingBursts() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "goku.session-event-debounce-\(UUID().uuidString)"))
+        let server = try XCTUnwrap(URL(string: "https://example.test"))
+        let streamClient = SpySSEStreamingClient()
+        let cursorStore = SessionEventCursorStore(defaults: defaults)
+        let coordinator = SessionEventStreamCoordinator(
+            server: server,
+            sessionID: "session-abc",
+            profile: nil,
+            streamClient: streamClient,
+            userDefaults: defaults
         )
+
+        coordinator.start()
+        let connection = streamClient.startedURLs.count - 1
+        // Burst of events: in-memory dedupe advances immediately, but no
+        // synchronous UserDefaults write happens per event.
+        for index in 0..<10 {
+            streamClient.emit(.token("chunk \(index)"), lastEventID: "session-abc:\(10 + index)", onConnection: connection)
+        }
+        XCTAssertNil(cursorStore.load(server: server, profile: nil, sessionID: "session-abc"))
+
+        // Stop flushes the coalesced state once.
+        coordinator.stop()
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: nil, sessionID: "session-abc"),
+            "session-abc:19"
+        )
+        let seenIDs = cursorStore.loadSeenEventIDs(server: server, profile: nil, sessionID: "session-abc")
+        XCTAssertEqual(seenIDs.last, "session-abc:19")
     }
 
     @MainActor
@@ -392,34 +431,51 @@ final class OpenChatSessionStoreTests: XCTestCase {
         XCTAssertEqual(streamClient.resumeEventIDs.last ?? nil, "stream-A:9")
 
         streamClient.emit(.token("journal event"), lastEventID: "stream-A:10")
+        // Persistence is debounced: the in-memory cursor advanced but the disk
+        // mirror has not been written yet.
+        XCTAssertEqual(
+            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
+            "stream-A:9"
+        )
+
+        // A reconnect prefers the fresher in-memory cursor over the stale disk row.
+        coordinator.start()
+        XCTAssertEqual(streamClient.resumeEventIDs.last ?? nil, "stream-A:10")
+
+        streamClient.emit(.token("duplicate event"), lastEventID: "stream-A:10", onConnection: streamClient.startedURLs.count - 1)
+        coordinator.stop()
+        // Stop flushes the coalesced cursor once.
         XCTAssertEqual(
             cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
             "stream-A:10"
         )
 
-        streamClient.emit(.token("duplicate event"), lastEventID: "stream-A:10")
+        coordinator.start()
+        let liveConnection = streamClient.startedURLs.count - 1
+        streamClient.emit(.token("new stream event"), lastEventID: "stream-B:1", onConnection: liveConnection)
+        streamClient.emit(.token("old stream replay"), lastEventID: "stream-A:10", onConnection: liveConnection)
+        streamClient.emit(.token("opaque one"), lastEventID: "opaque-1", onConnection: liveConnection)
+        streamClient.emit(.token("opaque two"), lastEventID: "opaque-2", onConnection: liveConnection)
+        streamClient.emit(.token("opaque replay"), lastEventID: "opaque-1", onConnection: liveConnection)
+        // Dedupe state is in-memory; the disk mirror still holds the flushed value.
         XCTAssertEqual(
             cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
             "stream-A:10"
         )
-
-        streamClient.emit(.token("new stream event"), lastEventID: "stream-B:1")
-        XCTAssertEqual(
-            cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
-            "stream-B:1"
-        )
-        streamClient.emit(.token("old stream replay"), lastEventID: "stream-A:10")
-        streamClient.emit(.token("opaque one"), lastEventID: "opaque-1")
-        streamClient.emit(.token("opaque two"), lastEventID: "opaque-2")
-        streamClient.emit(.token("opaque replay"), lastEventID: "opaque-1")
+        coordinator.stop()
         XCTAssertEqual(
             cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
             "opaque-2"
         )
 
+        // Reconnect, then receive a snapshot (recovery boundary): the stale
+        // cursor and dedupe state are discarded and must not be re-persisted.
+        coordinator.start()
+        let recoveryConnection = streamClient.startedURLs.count - 1
         streamClient.emit(
             .sessionSnapshot(SessionSummary(sessionId: "session-abc", title: "Updated")),
-            lastEventID: nil
+            lastEventID: nil,
+            onConnection: recoveryConnection
         )
 
         XCTAssertEqual(appliedSnapshots, 1)
@@ -427,6 +483,7 @@ final class OpenChatSessionStoreTests: XCTestCase {
             cursorStore.load(server: server, profile: "work", sessionID: "session-abc"),
             nil
         )
+        coordinator.stop()
         coordinator.start()
         XCTAssertNil(streamClient.resumeEventIDs.last ?? nil)
         XCTAssertNil(
