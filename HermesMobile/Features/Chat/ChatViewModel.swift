@@ -3901,7 +3901,8 @@ final class ChatViewModel {
         await reconnectStreamIfNeeded(modelContext: modelContext)
     }
 
-    func reconnectStreamIfNeeded(modelContext: ModelContext? = nil) async {
+    @discardableResult
+    func reconnectStreamIfNeeded(modelContext: ModelContext? = nil) async -> Bool {
         await streamCoordinator.reconnectIfNeeded(modelContext: modelContext)
     }
 

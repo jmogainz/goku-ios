@@ -227,6 +227,59 @@ final class OpenChatSessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testKnownListStreamAttachesBeforeTranscriptReloadWhenReplayIsUnavailable() async throws {
+        let streamClient = SpySSEStreamingClient()
+        var sessionFetchCount = 0
+        let viewModel = try makeViewModel(
+            sessionID: "session-abc",
+            activeStreamID: "stream-from-list",
+            streamClient: streamClient
+        ) { request in
+            switch request.url?.path {
+            case "/api/chat/stream/status":
+                return apiTestJSONResponse("""
+                {
+                  "active": true,
+                  "replay_available": false
+                }
+                """, for: request)
+            case "/api/session":
+                sessionFetchCount += 1
+                XCTAssertEqual(
+                    streamClient.startedURLs.count,
+                    1,
+                    "The live SSE must attach before a lock-bound transcript reload."
+                )
+                return apiTestJSONResponse("""
+                {
+                  "session": {
+                    "session_id": "session-abc",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": "Keep working",
+                        "timestamp": 1770000100,
+                        "message_id": "user-1"
+                      }
+                    ]
+                  }
+                }
+                """, for: request)
+            default:
+                XCTFail("Unexpected request path: \(request.url?.path ?? "nil")")
+                throw URLError(.badURL)
+            }
+        }
+
+        await viewModel.reconnectStreamIfNeeded()
+
+        XCTAssertEqual(sessionFetchCount, 1)
+        XCTAssertEqual(streamClient.startedURLs.count, 1)
+        XCTAssertEqual(viewModel.activeStreamID, "stream-from-list")
+        XCTAssertFalse(viewModel.isActiveStreamConnectionSuspended)
+    }
+
+    @MainActor
     func testRememberedRestorePointSurvivesLeaveAndReopen() throws {
         let viewModel = try makeViewModel(sessionID: "session-abc")
         let server = try XCTUnwrap(URL(string: "https://example.test"))
